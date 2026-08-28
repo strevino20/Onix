@@ -208,11 +208,11 @@ project: `ckayfqplkpplgojdhjlu`.
   **REMOVED, PR #174 (`d938557`, "Remove dead view-review section from
   admin-portal.html").** Confirmed merged via git history (Aug 20 2026
   audit). Don't re-flag this as pending.
-- **`profiles.admin_notes`** column — confirmed it still exists in the
-  schema, now superseded by the dedicated `client_admin_notes` table
-  (which has its own admin-only RLS and audit columns). The old column
-  is vestigial with zero UI referencing it; worth confirming/dropping
-  later.
+- ~~**`profiles.admin_notes`** column~~ — **DROPPED, migration
+  `drop_admin_notes_from_profiles` (2026-08-28).** Confirmed vestigial
+  (superseded by the dedicated `client_admin_notes` table), confirmed
+  empty across all rows, then dropped. See the Aug 28 2026 section
+  below for the full trail. Don't re-flag this as pending.
 
 ### Upcoming work
 
@@ -490,17 +490,6 @@ existence):
 - **"Leaked Password Protection"** in Supabase — status unknown this
   session (no Supabase access); last confirmed disabled in the previous
   audit. Re-verify before assuming either way.
-- **`profiles.admin_notes`** column — the one live reference (a dead,
-  unreachable `notes` parameter in `supabase.js`'s `markClientMet`/
-  `approveClient`, confirmed via full-repo grep including a proper
-  decode of `admin-portal.html`'s bundler blob — every real call site
-  only ever passed `userId`) was removed and merged: PR #210
-  (`remove-dead-admin-notes-plumbing`, commit `7f61de4`, merged
-  `e448d79`, 2026-08-28). The column itself has **not** been dropped
-  yet — that step was interrupted mid-task. Fully unblocked now;
-  dropping it is the clean remaining step. Branch
-  `drop-profiles-admin-notes-column` is sitting ready off `origin/main`
-  with no commits, for whoever picks this up next.
 - **OUS Activa's `proximo-pagos`/`historico-pagos`** — still not
   integrated (see corrected "Not yet built" bullet above; don't confuse
   with Pasiva's `proximo-pagos`, which PR #203 did wire up).
@@ -673,6 +662,23 @@ across the deposit detail stat, Dashboard Upcoming sidebar, Upcoming
 Payments table (reusing the existing `.badge.badge-red` pattern), the
 notifications bell, and the My Loan/Dashboard KPI — display-only,
 `days_delinquent` and `server.js` untouched by this second PR.
+
+### `profiles.admin_notes` column dropped
+
+The dead-code blocker flagged in the original investigation (a dead
+`notes` parameter in `supabase.js`'s `markClientMet`/`approveClient`,
+confirmed unreachable — every real call site only ever passed
+`userId`) was removed and merged first: PR #210
+(`remove-dead-admin-notes-plumbing`, commit `7f61de4`, merged
+`e448d79`, 2026-08-28). With that cleared, a fresh full-repo grep
+(including the same bundler-blob decode as the original check) came
+back with zero remaining references anywhere, and a live check
+confirmed all 149 `profiles` rows had `admin_notes IS NULL`, with no
+index, constraint, or RLS policy touching it. Dropped via migration
+`drop_admin_notes_from_profiles` (2026-08-28) — see
+`supabase/migrations/20260828164917_drop_admin_notes_from_profiles.sql`
+for the exact statement. Column is gone; don't re-flag this as
+pending.
 
 ### `ous_activa_client_matches` verified_at/verified_by inconsistency — closed, not a bug
 
