@@ -816,8 +816,10 @@ rate limiter need tuning" question, not "does one exist."
   or transfer the Railway project. See above.
 - **Supabase usage-limit margin** — status upgraded from "urgent, unknown
   how close to pause" to "confirmed not paused, margin still unknown."
-- **OUS Activa port-7575 outage** — unchanged, deprioritized by Santi,
-  no fixed date.
+- ~~**OUS Activa port-7575 outage**~~ — **root cause corrected, still
+  unresolved** — see "Sept 18 2026 — Vercel migration, client portal
+  fixes, and OUS Activa root-cause correction" below. It was never a
+  vendor-side outage; don't re-describe it that way.
 - **Leaked Password Protection** — unchanged, still disabled.
 - **OUS Activa's `proximo-pagos`/`historico-pagos`** — unchanged, still
   not integrated.
@@ -826,6 +828,198 @@ rate limiter need tuning" question, not "does one exist."
 - **Brandbook audit** — unchanged, still not done.
 - ~~**Rate limiting on OUS API calls**~~ — **RESOLVED**, see above. Was
   incorrectly still listed as open through the Aug 28 section.
+
+## Sept 18 2026 — Vercel migration, client portal fixes, and OUS Activa root-cause correction
+
+Same day as the audit above, continuing the same session — Santi asked
+to prep the live site for a client-facing test (Patrick wants 5 real
+clients to check their portal view "next week"). This section is the
+result. Everything below is confirmed live, not relayed secondhand.
+
+### Live site moved from GitHub Pages to Vercel
+
+**The site is no longer at `williambking.github.io/Onix` or any
+`github.io` URL — it's now `https://onix-red.vercel.app`.** This was
+already the "original plan" per Santi; PR #213 finished it. Update any
+reference to the old URL you find in a future session (this file's
+"Project overview" line above still says `williambking.github.io/Onix`
+— stale, fix it when next editing that section).
+
+- **Why now, not later**: the repo transfer earlier today silently broke
+  the site. GitHub Pages project-site URLs are owner-scoped
+  (`<owner>.github.io/<repo>`), so the transfer moved the live URL out
+  from under `williambking.github.io/Onix` with nothing redirecting —
+  and separately, `server.js`'s hardcoded CORS fallback only ever
+  listed that exact old origin, so even loading the new URL couldn't
+  reach the backend (browser blocked every API call, no visible error
+  beyond a blank/broken app). Both are fixed now (see below) but this
+  was a real, live, total-outage bug for roughly the whole gap between
+  the transfer and this session — worth knowing if anyone asks why the
+  portal "wasn't working" around Sept 18.
+- **`vercel.json`/`.vercelignore` already existed in the repo** before
+  this session touched anything — confirms the Vercel plan was real
+  prior work, not just talk. No hardcoded `/Onix/`-subpath references
+  exist anywhere in the frontend (checked all 11 HTML/JS files), so the
+  move to Vercel's root-path serving was clean.
+- **Known pitfall, now fixed (PR #213, `.vercelignore`)**: the repo's
+  root `package.json` belongs to the **Railway backend**
+  (`onix-ous-proxy`, `server.js`), not this static frontend — but
+  Vercel doesn't know that. On first import, Vercel saw `express` as a
+  dependency and a `"start": "node server.js"` script and auto-detected
+  the whole repo as an Express app, deploying `server.js` itself
+  instead of the static HTML — every route 404'd with Express's own
+  `Cannot GET /` fallback (not a Vercel 404 page). Confirmed live
+  before the fix. Fixed by excluding `package.json`,
+  `package-lock.json`, `server.js`, and `railway-status-snapshot.js`
+  via `.vercelignore` **and** the Vercel project's Framework Preset
+  manually set to "Other" in the dashboard (the `.vercelignore` change
+  alone may not have been sufficient — the preset can lock in at import
+  time; both were done this session). **If this repo is ever
+  re-imported into a fresh Vercel project, redo both steps** — a bare
+  re-import will likely reproduce the exact same bug, since nothing
+  about the repo's `package.json` changed, only what Vercel is told to
+  ignore.
+  - `server.js`'s full source was briefly publicly downloadable at
+    `/server.js` on the live domain before this fix landed — no secrets
+    in it (all real values are env vars), but internal
+    architecture/comments were exposed. Confirmed closed after the fix.
+- **Two Vercel projects briefly existed** pointing at the same repo
+  (`onix-red` and `onix-fb9b`, from two separate import attempts).
+  `onix-fb9b` was deleted; **`onix-red` is the canonical one.** If a
+  second project mysteriously reappears, it's probably another accidental
+  re-import — delete it, don't try to keep both in sync.
+
+### Railway: CORS updated, and Static Outbound IPs were already on
+
+- **`ALLOWED_ORIGINS`** is now set as a real env var on the `Onix`
+  service (previously unset, relying on the stale code fallback) —
+  `https://onix-red.vercel.app,https://portal.onixfinance.com`. Confirmed
+  live via direct CORS probe from both origins. If the Vercel domain
+  ever changes (custom domain, project recreation), this needs updating
+  too — it will NOT auto-follow a Vercel domain change.
+- **The `Onix` service already has Railway's "Static Outbound IPs"
+  (HA) enabled** — this was news to this session; not documented
+  anywhere before. Three fixed IPs, shared type:
+  `162.220.232.250`, `162.220.232.251`, `152.55.176.240`. This directly
+  matters for the OUS Activa item below.
+- Railway project confirmed named **`marvelous-surprise`** (project ID
+  `82848d48-9c6c-49cc-9069-ad6edc38aebc`) — contains both the `Onix`
+  service and the `cozy-friendship` cron. Neither this file nor any
+  prior session had named the parent project before, only its services.
+
+### OUS Activa outage — root cause was wrong, corrected here
+
+Every prior mention of this outage (Aug 20 audit through today's
+earlier Sept 18 audit section) concluded it was a vendor-side server
+outage and recommended deprioritizing until OUS's team could be
+reached. **That diagnosis is wrong.** Confirmed this session:
+
+- A direct, repeated test of `54.165.232.64:7575` from outside Railway's
+  network succeeded instantly every time (3/3 attempts, ~100ms each),
+  returning the identical healthy `HTTP 400` response Pasiva's port 7070
+  gives for an unauthenticated login call. **The Activa server is up.**
+- Meanwhile Railway's own requests to that exact host:port have failed
+  with `connect ETIMEDOUT` on every attempt since 2026-08-20 (686/686
+  failed in the 7 days before this session, still failing as of
+  2026-09-18 16:07 UTC) — while Pasiva (port 7070, same host, same
+  server) has synced perfectly the entire time.
+- Env vars and the requested URL are confirmed correct (the error
+  message itself proves the right host/port is being hit).
+- **Conclusion: OUS's firewall almost certainly allowlists Railway's
+  traffic for port 7070 but not port 7575** — a one-sided network rule,
+  not a dead server. This is fixable, not just something to wait out.
+
+**What's needed to actually fix it**: give OUS's technical contact the
+three Static Outbound IPs listed above and ask them to check/extend
+their port-7575 allowlist to match whatever already lets port 7070
+through for the same origin. Nobody has done this yet — it requires a
+person (Santi or William) to actually contact OUS, which is outside
+what a session can do alone. **Don't re-diagnose this from scratch in a
+future session** — the cause is known; only the vendor-side fix is
+still pending.
+
+### Client portal bug fix: timezone date-parsing (PR #214)
+
+Found while doing a code+data correctness pass ahead of Patrick's
+client test. `client-portal-data.js` has a `parseLocalDate()` helper
+specifically because `new Date('YYYY-MM-DD')` parses as UTC midnight,
+which reads back as the *previous calendar day* in any US timezone
+(confirmed: Houston reads `'2026-01-15'` as Jan 14). That helper is used
+correctly through most of the file, but **6 call sites bypassed it**
+with a raw `new Date(...)` on a bare date column instead — all fixed
+this session:
+
+1. `synthActivaSchedule`'s anchor date — shifted every synthesized OUS
+   Activa payment due date back a day for any loan without real
+   `loan_payments` rows (which is most Activa loans, since Activa never
+   exposes per-installment history).
+2. The notification bell's overdue check (`renderNotifications`) —
+   could flag a payment "overdue" several hours before it actually was.
+3. The Dashboard "Upcoming" card's displayed day-number
+   (`renderUpcomingEvents`) — showed the wrong calendar day.
+4. The Repayment Progress card's Origination/Maturity month-year labels.
+5. The investment cash-flow chart's month labels (wrong month for a
+   distribution paid on the 1st).
+6. The portfolio growth chart's month-boundary bucketing (same 1st-of-
+   month edge case, could misattribute a distribution to the prior
+   month's cumulative total).
+
+Verified against a real live loan (Activa loan `156`, origination
+`2023-03-21`) that the fix is checkable by eye: payment dates on that
+loan's My Loan page should land on the 21st of each month post-fix,
+not the 20th.
+
+### Live client-portal spot checks (real accounts, real data)
+
+Two real client logins were tested live on the new Vercel domain,
+confirming full end-to-end functionality (login → real Supabase data →
+correct rendering) for the first time since the repo transfer:
+
+- A Pasiva-only client (investor/depositor, no borrower loan) —
+  Dashboard correctly showed real invested amount and ROI, "My Loan"
+  correctly showed "No active loan" (this client's `loans` row is
+  `data_source = 'ous_pasiva'`, i.e. a deposit, not a real loan — not a
+  bug that "My Loan" is empty for this client type).
+- An Activa borrower client (`ph@onixfinance.com` — a Hagemeister-family
+  client account, not Patrick's own staff login; his actual admin login
+  is `admin@onixfinance.com` per the July audit) — real active loan
+  rendered correctly, including a genuinely blank Monthly
+  Payment/Next Due on one of their 12 loans, traced to real missing
+  source data (`monthly_payment IS NULL`, a single-payment/balloon
+  loan with `num_payments_total = 1`) rather than a code bug.
+  **Product gap worth flagging to Patrick**: a client with a
+  single-payment Activa loan currently has no way to see when it's due
+  at all unless an admin manually sets `next_due_date` on the Edit Loan
+  form. Not fixed this session — a product decision, not a bug fix.
+
+### Client accounts share a password — not universally, confirmed partial
+
+Santi discovered that at least some client accounts share one login
+password across accounts (useful for testing, but a real security
+concern with real client financial data on the line — separate from,
+and not fixed by, Supabase's still-disabled "Leaked Password
+Protection," which only checks against known breach dumps and
+wouldn't catch internal password reuse). **Confirmed this does NOT
+apply to every client**: one Activa client
+(`pedroteyuca@gmail.com`, loan `156`) has never signed in
+(`last_sign_in_at IS NULL`) and the shared password did not work for
+it. Working theory, not fully confirmed: bulk/auto-created Pasiva
+clients share the default password from however that batch process set
+them up; individually admin-created Activa clients (via the "Create New
+Client" flow, PR #166) may each have gotten a distinct password at
+creation time. **Before assuming a given test client's login works,
+check `auth.users.last_sign_in_at` for that email first** — null means
+don't assume the shared password applies. This is Patrick's decision to
+prioritize, not something fixed here — flagging it is as far as this
+session went.
+
+### Loose end
+
+`drop-profiles-admin-notes-column` branch (pre-existing before this
+session) is pushed to origin with one commit but still has no PR
+opened. Not touched this session beyond noticing it — pick it up
+whenever, low priority, purely a docs-recording commit (the actual
+column drop migration already shipped).
 
 ## Session Handoff Notes (historical — chart-recursion session, folded up)
 
