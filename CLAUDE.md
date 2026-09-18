@@ -71,14 +71,17 @@ automatically via `.github/workflows/validate-admin-bundle.yml` (required
 status check `validate-admin-bundle`, runs on the PR merge result) — but
 don't rely on CI to catch what local verification should already catch.
 
-## Project Status & History (as of late July 2026, see Aug 20 addendum below)
+## Project Status & History (as of late July 2026, see Sept 18 audit below)
 
 Comprehensive handoff summary for a fresh session with no prior context.
 Every fact below was independently re-verified against the live codebase
 and Supabase project (not transcribed blindly) as of this writing. **This
-section is now three weeks stale — read the "Aug 20 2026 audit" addendum
-at the end of this file first**, it corrects several items below (notably
-the two "Known pending items" and the OUS Activa "Not yet built" list).
+section is now stale — read the "Sept 18 2026 audit" section near the end
+of this file first**, it's the current entry point and supersedes the
+"Aug 20 2026 audit" addendum below it, which corrects several items in
+this section (notably the two "Known pending items" and the OUS Activa
+"Not yet built" list) but is itself now superseded where the two
+disagree.
 
 **Before touching `admin-portal.html`, read "Editing admin-portal.html"
 above first** — it's current and unchanged; nothing below duplicates it.
@@ -702,6 +705,127 @@ discards uncommitted work), run `git stash -u` first whenever `git
 status` shows anything uncommitted** — this is already the stated
 safety protocol; this incident is the reason to actually follow it
 every time, not just when the change looks obviously important.
+
+## Sept 18 2026 audit — repo ownership transfer, live Supabase/Railway check
+
+Main had **zero commits for 21 days** (last activity was PR #211, the Aug
+28 audit itself) — this gap is when the ownership transfer below
+happened. This audit is broader than the Aug 20 one: it had live
+Supabase **and** Railway access via MCP connectors, not git-history-only,
+so findings below marked "confirmed live" are stronger than that caveat
+implied for the Aug 20 section.
+
+### Repo ownership transferred: williamBking/Onix → strevino20/Onix
+
+GitHub confirms the transfer (`api.github.com/repos/williamBking/Onix`
+now 301-redirects to the new location). The repo now lives at
+`github.com/strevino20/Onix`. Local `origin` remote updated to the new
+URL directly rather than relying on the redirect. Branch tracking,
+history, and PR numbering all carried over intact — this was a plain
+GitHub transfer, not a fork or re-clone, so nothing below about PR/issue
+numbers or branch names changed because of it.
+
+**Railway was not transferred along with it — separate, still open.**
+`strevino20`'s Railway workspace ("strevino20's Projects") has
+`projectCount: 0`, confirmed via the Railway MCP connector's own
+`whoami` (authenticated as `strevino20`) and `list-workspaces` calls.
+The `Onix` Express service and the `cozy-friendship` cron job documented
+in "Aug 20 2026 — Railway live verification" above are presumably still
+sitting under William's Railway account — that section's findings were
+gathered via screen-share on William's login, not through any access
+Santi's own account has. **Practical impact: this session cannot inspect
+Railway logs, redeploy, or change env vars/variables for the live
+backend** — that requires William to invite `strevino20` to the Railway
+project (or transfer it, same as GitHub) before any Railway-side work
+this session flags as needed can actually be done. Flag this to Santi
+directly; it's not something to work around.
+
+### Correcting a stale "still genuinely open" item
+
+**Rate limiting on OUS API calls — DONE, not open.** The Aug 20 and Aug
+28 sections both still list this as genuinely open ("a code fix, not a
+Railway config question"). Confirmed via git log: `add-ous-rate-limiting`
+merged as **PR #206** on 2026-08-28 ("Add outbound rate limiting for OUS
+Pasiva/Activa calls"), before the Aug 28 audit section itself was
+written — that section simply missed it. Don't re-flag this as open in
+a future session; if it needs revisiting, that's a "does the existing
+rate limiter need tuning" question, not "does one exist."
+
+### Live Supabase check (via MCP, project `ckayfqplkpplgojdhjlu`)
+
+- **Project status: `ACTIVE_HEALTHY`**, not paused. Directly answers the
+  most urgent item from the Aug 20 Railway-verification section (the
+  "EXCEEDING USAGE LIMITS" dashboard badge risking auto-pause) — the
+  project has not been paused. Couldn't check the badge itself or how
+  close to the limit it currently runs (no billing/usage endpoint
+  exposed through this MCP connector, only project status), so treat
+  "not paused" as confirmed but "how much margin is left" as still
+  unknown — worth Santi checking the dashboard billing page directly.
+- **`profiles.admin_notes` — confirmed still gone** (0 matching columns
+  in `information_schema.columns`), consistent with the Aug 28 drop.
+- **RLS policies re-checked directly** on `profiles`, `loans`,
+  `investments`, `loan_payments`, `distributions`, `ous_sync_log`,
+  `ous_activa_sync_log` — no "ae scope" policies on any of them, only
+  the documented admin-all + self-own + non-admin-cannot-write pattern.
+  Security fixes from "Critical security fixes applied" above are
+  confirmed still in place, live, today.
+- **Leaked Password Protection — confirmed still disabled**, live, via
+  the security advisor. Unchanged from every prior check; still nobody's
+  gotten to it.
+- **OUS Activa outage — still ongoing, now ~4 weeks in.** Confirmed live:
+  686 of 686 sync attempts failed in the last 7 days (0 successes), most
+  recent failure 2026-09-18 15:37 UTC — same `ETIMEDOUT` pattern on port
+  7575 documented in the Aug 28 section, uninterrupted since. OUS Pasiva
+  in the same window: 671/671 successful, healthy. Matches Santi's
+  2026-08-28 decision to deprioritize rather than escalate yet — this
+  isn't a new problem, just confirmation it's still exactly where it was
+  left. Don't re-investigate the cause again; it's already been ruled
+  isolated to OUS's Activa endpoint (see Aug 28 section above).
+- **New, undocumented finding: a stray `public."Onix"` table.** Columns
+  are only `id` (bigint) and `created_at` (timestamptz) — no other
+  columns, no data checked. RLS is enabled with **zero policies**, which
+  means it's fully inaccessible via PostgREST to every role including
+  admins (not a security hole — the opposite, nothing can reach it
+  through the API). Not referenced anywhere in this file's history and
+  doesn't match the naming convention of any other table in the schema
+  (capitalized, matches the Supabase project's display name "Onix
+  Backend Project" instead). Best guess: leftover from initial project
+  scaffolding, never cleaned up. Low priority, but ask Santi before
+  dropping it — don't assume it's safe to delete without confirming nothing
+  external (a forgotten script, a manual dashboard test) still expects it.
+
+### GitHub state (confirmed live, 2026-09-18)
+
+- **0 open PRs.** `drop-profiles-admin-notes-column` (this session's
+  starting branch, commit `f343132`) is pushed to origin but has no PR
+  opened yet.
+- **46 remote branches** — up from 38 at the Aug 20 audit, not down.
+  The branch-hygiene pass that was "low-risk cleanup, not urgent" at
+  that audit has drifted further rather than happened; still not
+  urgent, but flagging the trend.
+- **Two untracked local files**, not one: the previously-noted
+  `Onix_Finance_Portal_PRD_branded.docx` (2026-08-19) plus a new
+  `Onix_Summary_of_Findings (2) copy.docx`, neither committed nor
+  otherwise referenced in git. Contents not read as part of this audit
+  — confirm with Santi before assuming either's purpose.
+
+### Still genuinely open (carried forward, correcting the list above)
+
+- **Railway access** — reopened in a new shape: not "screen-share only,"
+  now "not on Santi's Railway account at all." Needs William to invite
+  or transfer the Railway project. See above.
+- **Supabase usage-limit margin** — status upgraded from "urgent, unknown
+  how close to pause" to "confirmed not paused, margin still unknown."
+- **OUS Activa port-7575 outage** — unchanged, deprioritized by Santi,
+  no fixed date.
+- **Leaked Password Protection** — unchanged, still disabled.
+- **OUS Activa's `proximo-pagos`/`historico-pagos`** — unchanged, still
+  not integrated.
+- **Loans-table duplication with the servicing dashboard** — unchanged,
+  status uncertain, don't assume a direction.
+- **Brandbook audit** — unchanged, still not done.
+- ~~**Rate limiting on OUS API calls**~~ — **RESOLVED**, see above. Was
+  incorrectly still listed as open through the Aug 28 section.
 
 ## Session Handoff Notes (historical — chart-recursion session, folded up)
 
