@@ -676,7 +676,7 @@
         const cashflowChart = new Chart(canvas.getContext('2d'), {
           type: 'bar',
           data: {
-            labels: sortedAsc.map(d => new Date(d.paid_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })),
+            labels: sortedAsc.map(d => parseLocalDate(d.paid_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })),
             datasets: [{
               data: sortedAsc.map(d => Number(d.amount || 0)),
               backgroundColor: '#C0392B', borderWidth: 0, borderRadius: 2, maxBarThickness: 38
@@ -1120,8 +1120,12 @@
       const dateSpans = dateRow.querySelectorAll('span');
       const formatMonthYear = (d) => {
         if (!d) return '—';
-        const dt = new Date(d);
-        if (isNaN(dt)) return '—';
+        // parseLocalDate, not new Date() — origination_date/maturity_date
+        // are bare 'YYYY-MM-DD' columns (see parseLocalDate's comment near
+        // the top of this file); a date on the 1st of a month would
+        // otherwise display as the prior month.
+        const dt = parseLocalDate(d);
+        if (!dt || isNaN(dt)) return '—';
         return dt.toLocaleString('en-US', { month: 'short', year: 'numeric' });
       };
       if (dateSpans[0]) dateSpans[0].textContent = formatMonthYear(loan.origination_date);
@@ -2110,14 +2114,19 @@
     if (typeof window.NOTIFS === 'undefined') return; // bell not present on this page
     const items = [];
     const now = new Date();
+    // parseLocalDate, not new Date() — these are bare 'YYYY-MM-DD' columns
+    // and new Date() parses them as UTC midnight, which both misplaces the
+    // displayed date and, worse, can flag a payment "overdue" hours before
+    // its due date actually begins in any US timezone (see parseLocalDate's
+    // own comment near the top of this file).
     (distributions || []).forEach(d => items.push({
-      ts: new Date(d.paid_at),
+      ts: parseLocalDate(d.paid_at),
       msg: '<b>' + (d.kind === 'interest' ? 'Interest' : 'Distribution') + '</b> of ' + fmt.money(d.amount) + ' deposited' + ((d.investments && d.investments.venture_name) ? ' from ' + d.investments.venture_name : ''),
-      read: (now - new Date(d.paid_at)) > 14 * 86400000 // older than 14 days marked read
+      read: (now - parseLocalDate(d.paid_at)) > 14 * 86400000 // older than 14 days marked read
     }));
     (payments || []).forEach(p => {
-      const due = p.due_date ? new Date(p.due_date) : null;
-      const paid = p.paid_at ? new Date(p.paid_at) : null;
+      const due = p.due_date ? parseLocalDate(p.due_date) : null;
+      const paid = p.paid_at ? parseLocalDate(p.paid_at) : null;
       const isDeposit = !!(p.loans && p.loans.data_source === 'ous_pasiva');
       if (paid) {
         items.push({
@@ -2190,7 +2199,10 @@
         // otherwise look like good news instead of a missed payment.
         const overdue = fmt.isOverdue(p.due_date);
         events.push({
-          date: new Date(p.due_date),
+          // parseLocalDate, not new Date() — see the comment on
+          // renderNotifications above; this is the actual day-number shown
+          // in the Upcoming card, so the raw parse displayed the wrong day.
+          date: parseLocalDate(p.due_date),
           title: overdue
             ? (isDeposit ? 'Interest Overdue' : 'Payment Overdue')
             : (isDeposit ? 'Interest Earned' : 'Loan Payment Due'),
@@ -2203,7 +2215,7 @@
     });
     (distributions || []).slice(0, 3).forEach(d => {
       events.push({
-        date: new Date(d.paid_at),
+        date: parseLocalDate(d.paid_at),
         title: (d.kind === 'distribution' ? 'Distribution' : 'Interest') + ' Received',
         sub: '+' + fmt.money(d.amount) + ((d.investments && d.investments.venture_name) ? ' · ' + d.investments.venture_name : ''),
         accent: 'var(--success)',
@@ -2255,11 +2267,14 @@
     const values = months.map(m => {
       // End-of-month cutoff
       const cutoff = new Date(m.getFullYear(), m.getMonth() + 1, 0);
+      // parseLocalDate, not new Date() — a start_date/paid_at of the 1st of
+      // the following month would otherwise parse as UTC midnight, read as
+      // the prior day locally, and land on the wrong side of `cutoff`.
       const activeInv = (investments || [])
-        .filter(i => i.status !== 'exited' && (!i.start_date || new Date(i.start_date) <= cutoff))
+        .filter(i => i.status !== 'exited' && (!i.start_date || parseLocalDate(i.start_date) <= cutoff))
         .reduce((s, i) => s + Number(i.amount_invested || 0), 0);
       const distSum = (distributions || [])
-        .filter(d => d.paid_at && new Date(d.paid_at) <= cutoff)
+        .filter(d => d.paid_at && parseLocalDate(d.paid_at) <= cutoff)
         .reduce((s, d) => s + Number(d.amount || 0), 0);
       // Real dollars. This used to round to the nearest $1,000 ("$K"), which
       // flattened any portfolio under seven figures into a coarse staircase
@@ -2881,8 +2896,12 @@
       const startStr  = loan.origination_date;
       if (!(principal > 0 && ratePct > 0 && term > 0 && mp > 0 && startStr)) return [];
       if (!Number.isFinite(paidCount) || paidCount < 0) return [];
-      const start = new Date(startStr);
-      if (isNaN(start.getTime())) return [];
+      // parseLocalDate, not new Date(startStr) — startStr is a bare
+      // 'YYYY-MM-DD' column and new Date() would parse it as UTC midnight,
+      // which reads back one calendar day early via getFullYear/getMonth/
+      // getDate in any US timezone (see parseLocalDate's own comment above).
+      const start = parseLocalDate(startStr);
+      if (!start || isNaN(start.getTime())) return [];
       const monthlyRate = ratePct / 12 / 100;
       const rows = [];
       let balance = principal;
