@@ -6,3 +6,13 @@ real supabase.js file
 supabase-login.js-(new login)
 README.md
 .github
+
+# Railway backend files — these belong to the separate Express proxy
+# service (server.js), not this static frontend. Their presence (in
+# particular package.json's "express" dependency and "start" script)
+# makes Vercel auto-detect this whole repo as an Express app and
+# deploy server.js instead of serving the static HTML.
+package.json
+package-lock.json
+server.js
+railway-status-snapshot.js
