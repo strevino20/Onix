@@ -209,6 +209,42 @@
     attempt();
   });
 
+  /* Favicon — same document.head-gets-replaced-wholesale problem as the
+     lock-layout override above, so injected the same way: retry until it
+     survives the bundler's head swap. A plain <link> in this original
+     <head> would get wiped the same way a plain <style> tag would. */
+  window.addEventListener('load', function(){
+    function inject(){
+      if (document.getElementById('__onix_favicon_32')) return;
+      var icon32 = document.createElement('link');
+      icon32.id = '__onix_favicon_32';
+      icon32.rel = 'icon';
+      icon32.type = 'image/png';
+      icon32.setAttribute('sizes', '32x32');
+      icon32.href = 'assets/favicon-32.png';
+      document.head.appendChild(icon32);
+
+      var icon16 = document.createElement('link');
+      icon16.rel = 'icon';
+      icon16.type = 'image/png';
+      icon16.setAttribute('sizes', '16x16');
+      icon16.href = 'assets/favicon-16.png';
+      document.head.appendChild(icon16);
+
+      var appleIcon = document.createElement('link');
+      appleIcon.rel = 'apple-touch-icon';
+      appleIcon.href = 'assets/apple-touch-icon.png';
+      document.head.appendChild(appleIcon);
+    }
+    var tries = 0;
+    function attempt(){
+      tries++;
+      if (!document.getElementById('__onix_favicon_32')) inject();
+      if (tries < 30) setTimeout(attempt, 200);
+    }
+    attempt();
+  });
+
 
   /* New Client flow — intercept clicks on the "+ New Client" button and
      show an intermediary modal that asks for Investor / Lender / Borrower,
