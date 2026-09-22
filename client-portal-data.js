@@ -322,9 +322,11 @@
       setT('#det-amount', fmt.money(inv.amount_invested));
       setT('#det-ownership', inv.ownership_pct != null ? fmt.pct(inv.ownership_pct) : '—');
       setT('#det-roi', inv.expected_return != null ? fmt.pct(inv.expected_return) : '—');
-      setT('#det-status', inv.status === 'active' ? 'Active'
-                       : inv.status === 'exited' ? 'Exited'
-                       : inv.status === 'pending' ? 'Pending' : (inv.status || '—'));
+      setT('#det-status', inv.status === 'active'      ? 'Active'
+                       : inv.status === 'exited'       ? 'Exited'
+                       : inv.status === 'pending'      ? 'Pending'
+                       : inv.status === 'charged_off'  ? 'Charged Off'
+                       : (inv.status || '—'));
 
       const details = document.getElementById('det-details');
       if (details) {
