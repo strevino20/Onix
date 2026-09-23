@@ -1195,27 +1195,6 @@ document.addEventListener('DOMContentLoaded', function(){
 
 function escHtml(s){ return String(s||'').replace(/[&<>"]/g, function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 
-/* ── Profile — Save Changes ─────────────────────────────────────── */
-document.addEventListener('DOMContentLoaded', function(){
-  var saveBtn = document.querySelector('#view-profile .btn-red');
-  if (!saveBtn) return;
-  saveBtn.onclick = function(){
-    var inputs = document.querySelectorAll('#view-profile .field-input');
-    var data = {};
-    inputs.forEach(function(inp){ data[inp.type||'text'] = inp.value; });
-    try { localStorage.setItem('onix-profile', JSON.stringify(data)); } catch(_){}
-    cpToast('Profile saved successfully.', '#3B8B3B');
-  };
-  // Restore saved values
-  try {
-    var saved = JSON.parse(localStorage.getItem('onix-profile')||'null');
-    if (saved) {
-      var inputs = document.querySelectorAll('#view-profile .field-input');
-      inputs.forEach(function(inp){ if (saved[inp.type||'text']) inp.value = saved[inp.type||'text']; });
-    }
-  } catch(_){}
-});
-
 /* ── Apply form — file list + better submit ─────────────────────── */
 document.addEventListener('DOMContentLoaded', function(){
   var fileInput = document.getElementById('fileInput');
