@@ -41,7 +41,12 @@ async function requireClient() {
   const session = await getSession()
   if (!session) { window.location.replace('login.html'); return null }
   const profile = await getProfile(session.user.id)
-  if (!profile || profile.role !== 'client' || profile.status !== 'active') {
+  // Matches login.html's own gate exactly: 'pending' and 'rejected' are
+  // blocked there too, everything else (currently just 'met' and 'active')
+  // is allowed to log in. This was previously status !== 'active' only,
+  // which meant a 'met' client could pass login.html's form but then get
+  // bounced straight back out the moment the portal page itself loaded.
+  if (!profile || profile.role !== 'client' || profile.status === 'pending' || profile.status === 'rejected') {
     localStorage.removeItem('onix-user')
     await _supabase.auth.signOut()
     window.location.replace('login.html')
