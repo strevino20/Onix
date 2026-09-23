@@ -4342,6 +4342,8 @@
       .ous-btn{background:#C0392B;color:#fff;border:1px solid #C0392B;padding:10px 18px;cursor:pointer;font:600 .72rem/1 'DM Sans',sans-serif;text-transform:uppercase;letter-spacing:.1em;border-radius:2px;height:36px}
       .ous-btn:hover{background:#a93226}
       .ous-btn:disabled{opacity:.6;cursor:not-allowed}
+      .ous-btn-secondary{background:#fff;color:#C0392B}
+      .ous-btn-secondary:hover{background:#FDF0EE}
       .ous-result{margin-top:10px;border:1px solid #E8E8E8;background:#FBFAF7;padding:12px 14px;font-size:.78rem;color:#1A1A1A;line-height:1.55;max-height:520px;overflow:auto}
       .ous-result.err{border-color:#C0392B;background:#FDF0EE;color:#a93226}
       .ous-result .muted{color:#888;font-style:italic}
@@ -4438,6 +4440,7 @@
           '<div class="ous-controls">' +
             '<label><span data-en="Closing date" data-es="Fecha de cierre">Closing date</span><input type="date" id="ous-cierre-date" value="' + today + '"></label>' +
             '<button class="ous-btn" id="ous-cierre-btn" type="button" data-en="Fetch" data-es="Consultar">Fetch</button>' +
+            '<button class="ous-btn ous-btn-secondary" id="ous-cierre-csv-btn" type="button" data-en="Export CSV" data-es="Exportar CSV">Export CSV</button>' +
           '</div>' +
           '<div id="ous-cierre-result" class="ous-result"><span class="muted" data-en="Loading…" data-es="Cargando…">Loading…</span></div>' +
         '</div>' +
@@ -4449,13 +4452,16 @@
           '<div class="ous-controls">' +
             '<label><span data-en="Days ahead" data-es="Días por delante">Days ahead</span><input type="number" id="ous-vencer-days" value="30" min="1" max="365" step="1"></label>' +
             '<button class="ous-btn" id="ous-vencer-btn" type="button" data-en="Fetch" data-es="Consultar">Fetch</button>' +
+            '<button class="ous-btn ous-btn-secondary" id="ous-vencer-csv-btn" type="button" data-en="Export CSV" data-es="Exportar CSV">Export CSV</button>' +
           '</div>' +
           '<div id="ous-vencer-result" class="ous-result"><span class="muted" data-en="Loading…" data-es="Cargando…">Loading…</span></div>' +
         '</div>';
       main.appendChild(v);
 
       v.querySelector('#ous-cierre-btn').addEventListener('click', () => fetchCierreSaldos());
+      v.querySelector('#ous-cierre-csv-btn').addEventListener('click', () => exportCierreSaldosCSV());
       v.querySelector('#ous-vencer-btn').addEventListener('click', () => fetchPorVencer());
+      v.querySelector('#ous-vencer-csv-btn').addEventListener('click', () => exportPorVencerCSV());
       v.querySelector('#ous-sync-btn').addEventListener('click', () => runOUSSync());
       refreshOUSSyncChip();
       if (window.__onixOUSSyncPoll) clearInterval(window.__onixOUSSyncPoll);
@@ -4624,10 +4630,10 @@
     cuenta:              { en: 'Bank Account',      es: 'Cuenta Bancaria' }
   };
 
-  function ousRenderCierreSaldosTable(rows) {
-    if (!Array.isArray(rows) || !rows.length) return null;
-    const lang = activeLang();
-    const knownOrder = Object.keys(CS_COL_LABELS);
+  // Shared by every OUS table renderer and the CSV export below: a fixed
+  // column order (so the shape stays consistent across API responses),
+  // with any unknown trailing keys appended at the end.
+  function ousCollectColumns(rows, knownOrder) {
     const seen = {};
     const cols = [];
     knownOrder.forEach(k => { if (rows.some(r => r && k in r)) { seen[k] = true; cols.push(k); } });
@@ -4636,6 +4642,37 @@
         Object.keys(r).forEach(k => { if (!seen[k]) { seen[k] = true; cols.push(k); } });
       }
     });
+    return cols;
+  }
+
+  // Builds the {headers, rows} shape that this codebase's existing
+  // `downloadCsv(filename, headers, rows)` helper expects (see the
+  // Clients/Loans/Deposits/Investments export wiring above), using
+  // translated labels as both the printed header and the row lookup key
+  // so the exported CSV matches the on-screen table exactly, instead of
+  // OUS's raw Spanish field names.
+  function ousBuildCsvExport(rows, colLabels, translateValue) {
+    if (!Array.isArray(rows) || !rows.length) return null;
+    const lang = activeLang();
+    const cols = ousCollectColumns(rows, Object.keys(colLabels));
+    if (!cols.length) return null;
+    const labelFor = (k) => {
+      const m = colLabels[k];
+      return m ? (lang === 'es' ? m.es : m.en) : k;
+    };
+    const headers = cols.map(labelFor);
+    const csvRows = rows.map(r => {
+      const o = {};
+      cols.forEach(c => { o[labelFor(c)] = translateValue ? translateValue(r ? r[c] : '') : (r ? r[c] : ''); });
+      return o;
+    });
+    return { headers, rows: csvRows };
+  }
+
+  function ousRenderCierreSaldosTable(rows) {
+    if (!Array.isArray(rows) || !rows.length) return null;
+    const lang = activeLang();
+    const cols = ousCollectColumns(rows, Object.keys(CS_COL_LABELS));
     if (!cols.length) return null;
 
     const labelFor = (k) => {
@@ -4650,6 +4687,16 @@
       return '<td class="' + (isNumeric ? 'num' : '') + '">' + esc(v == null ? '' : String(v)) + '</td>';
     }).join('') + '</tr>').join('') + '</tbody>';
     return '<table class="ous-table">' + thead + tbody + '</table>';
+  }
+
+  function exportCierreSaldosCSV() {
+    const lang = activeLang();
+    const csv = ousBuildCsvExport(__ousCierreRows, CS_COL_LABELS);
+    if (!csv) {
+      alert(lang === 'es' ? 'No hay datos para exportar todavía. Haz una consulta primero.' : 'No data to export yet. Run a fetch first.');
+      return;
+    }
+    downloadCsv('onix-closing-balances-' + (__ousCierreFecha || isoDate(new Date().toISOString())) + '.csv', csv.headers, csv.rows);
   }
 
   // Cache the last fetched rows so we can re-render in the new language
@@ -4746,41 +4793,44 @@
     return (document.documentElement.getAttribute('data-lang') || 'en');
   }
 
+  // Shared with the CSV export below so an exported value matches what's
+  // shown on screen exactly.
+  function pvTranslateValue(v, lang) {
+    if (v == null) return '';
+    const s = String(v);
+    if (lang === 'en' && PV_VALUE_EN[s]) return PV_VALUE_EN[s];
+    if (lang === 'es' && PV_VALUE_ES[s]) return PV_VALUE_ES[s];
+    return s;
+  }
+
   function ousRenderPorVencerTable(rows) {
     if (!Array.isArray(rows) || !rows.length) return null;
     const lang = activeLang();
-    // Use a fixed column order so the rendered table stays consistent
-    // across API responses; trailing keys we don't know about get appended.
-    const knownOrder = Object.keys(PV_COL_LABELS);
-    const seen = {};
-    const cols = [];
-    knownOrder.forEach(k => { if (rows.some(r => r && k in r)) { seen[k] = true; cols.push(k); } });
-    rows.forEach(r => {
-      if (r && typeof r === 'object') {
-        Object.keys(r).forEach(k => { if (!seen[k]) { seen[k] = true; cols.push(k); } });
-      }
-    });
+    const cols = ousCollectColumns(rows, Object.keys(PV_COL_LABELS));
     if (!cols.length) return null;
 
     const labelFor = (k) => {
       const m = PV_COL_LABELS[k];
       return m ? (lang === 'es' ? m.es : m.en) : k;
     };
-    const translateValue = (v) => {
-      if (v == null) return '';
-      const s = String(v);
-      if (lang === 'en' && PV_VALUE_EN[s]) return PV_VALUE_EN[s];
-      if (lang === 'es' && PV_VALUE_ES[s]) return PV_VALUE_ES[s];
-      return s;
-    };
 
     const thead = '<thead><tr>' + cols.map(c => '<th>' + esc(labelFor(c)) + '</th>').join('') + '</tr></thead>';
     const tbody = '<tbody>' + rows.map(r => '<tr>' + cols.map(c => {
       const v = r ? r[c] : '';
       const isNumeric = v != null && v !== '' && !isNaN(Number(v));
-      return '<td class="' + (isNumeric ? 'num' : '') + '">' + esc(translateValue(v)) + '</td>';
+      return '<td class="' + (isNumeric ? 'num' : '') + '">' + esc(pvTranslateValue(v, lang)) + '</td>';
     }).join('') + '</tr>').join('') + '</tbody>';
     return '<table class="ous-table">' + thead + tbody + '</table>';
+  }
+
+  function exportPorVencerCSV() {
+    const lang = activeLang();
+    const csv = ousBuildCsvExport(__ousPorVencerRows, PV_COL_LABELS, (v) => pvTranslateValue(v, lang));
+    if (!csv) {
+      alert(lang === 'es' ? 'No hay datos para exportar todavía. Haz una consulta primero.' : 'No data to export yet. Run a fetch first.');
+      return;
+    }
+    downloadCsv('onix-credits-coming-due-' + (__ousPorVencerDias || '') + 'd-' + isoDate(new Date().toISOString()) + '.csv', csv.headers, csv.rows);
   }
 
   // Cache the last fetched rows so we can re-render in the new language
