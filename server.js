@@ -113,6 +113,17 @@ const ACTIVA_SYNC_CRON_KEY      = process.env.ACTIVA_SYNC_CRON_KEY || '';
 const OUS_MIN_REQUEST_INTERVAL_MS        = Number(process.env.OUS_MIN_REQUEST_INTERVAL_MS)        || 500;
 const OUS_ACTIVA_MIN_REQUEST_INTERVAL_MS = Number(process.env.OUS_ACTIVA_MIN_REQUEST_INTERVAL_MS)  || 500;
 
+// Inbound rate limiting for /api/* — separate from the outbound OUS
+// throttle above, and covers a real gap: nothing previously limited how
+// often a caller could hit this proxy directly (bypassing the frontend
+// entirely). Login/signup/reset already have Supabase Auth's own limits;
+// this is everything else. Per-IP, fixed window, generous enough not to
+// bother a handful of admins clicking around — meant to catch abuse or a
+// runaway client loop, not normal use. /healthz is exempt (Railway polls
+// it on its own schedule) since the limiter is only mounted on /api.
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 60 * 1000;
+const RATE_LIMIT_MAX       = Number(process.env.RATE_LIMIT_MAX)       || 120;
+
 const PORT = Number(process.env.PORT) || 3000;
 
 // Comma-separated allowlist. Empty entries are ignored. The defaults
@@ -610,6 +621,14 @@ async function callOUSActivaRequest(path, { method = 'GET', body = null } = {}) 
 
 const app = express();
 
+// Railway sits in front of this app as a single reverse-proxy hop, so
+// req.ip would otherwise resolve to Railway's internal address for every
+// request instead of the real client IP — which would make the per-IP
+// rate limiter below either useless (one shared bucket for everyone) or
+// wrongly block unrelated users. Trusting exactly one hop is the standard
+// fix for this exact deployment shape.
+app.set('trust proxy', 1);
+
 // Accept JSON bodies on every route. The two data endpoints below
 // honor the prompt's "GET … accepts a body" wording, so we use
 // express.json() which works for both GET and POST.
@@ -640,6 +659,42 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Inbound rate limiting for /api/* — see RATE_LIMIT_WINDOW_MS/MAX in the
+// Config section above for why this exists. In-memory, per-IP, fixed
+// window: simple on purpose, matches this file's "no new dependencies"
+// rule, and is fine for a single Railway instance (no need for anything
+// shared/distributed at this traffic level).
+const rateLimitBuckets = new Map(); // ip -> { count, windowStart }
+
+function rateLimiter(req, res, next) {
+  const ip = req.ip || (req.connection && req.connection.remoteAddress) || 'unknown';
+  const now = Date.now();
+  let bucket = rateLimitBuckets.get(ip);
+  if (!bucket || now - bucket.windowStart >= RATE_LIMIT_WINDOW_MS) {
+    bucket = { count: 0, windowStart: now };
+    rateLimitBuckets.set(ip, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > RATE_LIMIT_MAX) {
+    const retryAfterS = Math.max(1, Math.ceil((bucket.windowStart + RATE_LIMIT_WINDOW_MS - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfterS));
+    return res.status(429).json({ error: 'Too many requests. Please slow down and try again shortly.' });
+  }
+  next();
+}
+app.use('/api', rateLimiter);
+
+// Sweep IPs that haven't made a request in a while so this Map doesn't
+// grow forever from one-off callers (scanners, transient clients). Runs
+// far less often than the window itself closes — this is cleanup, not
+// part of the rate-limit logic.
+setInterval(() => {
+  const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS * 2;
+  for (const [ip, bucket] of rateLimitBuckets) {
+    if (bucket.windowStart < cutoff) rateLimitBuckets.delete(ip);
+  }
+}, RATE_LIMIT_WINDOW_MS * 10).unref();
 
 // -------- Health check ----------------------------------------
 app.get('/healthz', (req, res) => {
