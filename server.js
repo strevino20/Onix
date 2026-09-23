@@ -33,7 +33,7 @@
  * Optional environment variables:
  *   PORT          — Railway sets this automatically (defaults to 3000 locally)
  *   ALLOWED_ORIGINS — comma-separated allowlist for CORS. Defaults to
- *                   the GH Pages site + the eventual custom domain.
+ *                   the Vercel site + the custom domain.
  *   OUS_ACTIVA_LOGIN / OUS_ACTIVA_PASSWORD / OUS_ACTIVA_API_URL —
  *                   required only for /api/activa-sync-run; unset means
  *                   that route always fails with a clear "not configured"
@@ -127,11 +127,11 @@ const RATE_LIMIT_MAX       = Number(process.env.RATE_LIMIT_MAX)       || 120;
 const PORT = Number(process.env.PORT) || 3000;
 
 // Comma-separated allowlist. Empty entries are ignored. The defaults
-// cover the current GitHub Pages site and the planned custom domain
-// (see README §9). Add http://localhost:8000 here while developing
-// the frontend locally if needed.
+// cover the current Vercel site and the custom domain (see README §9).
+// Add http://localhost:8000 here while developing the frontend locally
+// if needed.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
-  'https://williambking.github.io,https://portal.onixfinance.com'
+  'https://onix-red.vercel.app,https://portal.onixfinance.com'
 ).split(',').map(s => s.trim()).filter(Boolean);
 
 // If the boot login fails (wrong creds, OUS down), retry on this
