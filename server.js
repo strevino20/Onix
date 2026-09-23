@@ -1206,7 +1206,10 @@ async function createPlaceholderClient({ email, full_name, rfc, regimen, promoto
     bank_account: bank_account || null,
     ous_id_cliente: ous_id_cliente || null,
     role: 'client',
-    status: 'met'
+    status: 'met',
+    // A profile only reaches this path via an OUS Pasiva credit (deposit),
+    // so they're an LP/investor by construction.
+    is_lp: true
   };
   const upserted = await sbFetch('/rest/v1/profiles?on_conflict=id', {
     method: 'POST',
@@ -1225,7 +1228,7 @@ async function createPlaceholderClient({ email, full_name, rfc, regimen, promoto
 async function fillProfileMissing(id, fields) {
   // Fetch the row so we can decide which fields to update.
   const r = await sbFetch('/rest/v1/profiles?id=eq.' + encodeURIComponent(id) +
-    '&select=full_name,rfc,regimen,promotor,bank_clabe,bank_account,ous_id_cliente,email');
+    '&select=full_name,rfc,regimen,promotor,bank_clabe,bank_account,ous_id_cliente,email,is_lp');
   if (!r.ok) return;
   const rows = await r.json();
   const cur = rows && rows[0]; if (!cur) return;
@@ -1233,6 +1236,10 @@ async function fillProfileMissing(id, fields) {
   ['full_name','rfc','regimen','promotor','bank_clabe','bank_account','ous_id_cliente'].forEach(k => {
     if ((cur[k] == null || cur[k] === '') && fields[k]) patch[k] = fields[k];
   });
+  // This profile has an OUS Pasiva credit (deposit), so it's an LP/investor
+  // — self-heal is_lp if a prior sync or manual edit never set it. Only
+  // ever turns it true, never false, so it can't stomp an admin's choice.
+  if (cur.is_lp !== true) patch.is_lp = true;
   if (Object.keys(patch).length === 0) return;
   await sbFetch('/rest/v1/profiles?id=eq.' + encodeURIComponent(id), {
     method: 'PATCH',
