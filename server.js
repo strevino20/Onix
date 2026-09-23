@@ -621,13 +621,17 @@ async function callOUSActivaRequest(path, { method = 'GET', body = null } = {}) 
 
 const app = express();
 
-// Railway sits in front of this app as a single reverse-proxy hop, so
-// req.ip would otherwise resolve to Railway's internal address for every
-// request instead of the real client IP — which would make the per-IP
-// rate limiter below either useless (one shared bucket for everyone) or
-// wrongly block unrelated users. Trusting exactly one hop is the standard
-// fix for this exact deployment shape.
-app.set('trust proxy', 1);
+// Railway's own docs (docs.railway.com/networking/edge-networking) describe
+// the request path as User -> Edge POP -> Internal Routing -> Deployment ->
+// Your Service — two proxy hops (the edge POP that terminates TLS, then the
+// internal hop to the deployment region), not one. Trusting only 1 hop was
+// confirmed live to break the /api/* rate limiter below: req.ip resolved to
+// Railway's internal routing address instead of the real client, which
+// varies per request, so the per-IP bucket never accumulated (thousands of
+// requests from one real IP, zero ever hit the limit). Trusting 2 hops
+// matches Railway's documented topology and was verified to recover the
+// real client IP.
+app.set('trust proxy', 2);
 
 // Accept JSON bodies on every route. The two data endpoints below
 // honor the prompt's "GET … accepts a body" wording, so we use
