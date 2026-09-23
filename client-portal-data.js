@@ -569,29 +569,51 @@
         : '<div style="font-size:.8rem;color:var(--muted);font-style:italic;padding:14px 0">' +
             'This deposit doesn’t have a maturity date on file yet, so a schedule can’t be shown.</div>');
 
-    // Bars across the term: dates already passed in solid red, still-upcoming
-    // ones muted, so "where am I in this deposit" reads at a glance.
+    // Cumulative accrued interest across the term: every period pays the
+    // same flat amount, so a bar-per-period chart is just N identical bars —
+    // no more informative than the "X of Y payment dates have passed"
+    // caption below it. A running total actually shows trajectory. Solid
+    // through today, dashed for the projected remainder.
     const canvas = document.getElementById('det-cashflow-chart');
     if (canvas && schedule.length && typeof Chart !== 'undefined') {
       try { const ex = Chart.getChart(canvas); if (ex) ex.destroy(); } catch (e) {}
+      let running = 0;
+      const cumulative = schedule.map(s => running += Number(s.amount || 0));
+      const splitIdx = elapsed.length - 1; // index of the last payment date already passed
+      const pastData     = cumulative.map((v, i) => i <= splitIdx ? v : null);
+      const upcomingData = cumulative.map((v, i) => i >= splitIdx ? v : null);
       const chart = new Chart(canvas.getContext('2d'), {
-        type: 'bar',
+        type: 'line',
         data: {
           labels: schedule.map(s => s.date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })),
-          datasets: [{
-            data: schedule.map(s => Number(s.amount || 0)),
-            backgroundColor: schedule.map(s => s.date <= now ? '#C0392B' : '#E8D5D2'),
-            borderWidth: 0, borderRadius: 2, maxBarThickness: 38
-          }]
+          datasets: [
+            {
+              label: 'Paid to date', data: pastData, upcoming: false,
+              borderColor: '#C0392B', backgroundColor: 'rgba(192,57,43,0.08)',
+              fill: 'origin', tension: 0.25, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5
+            },
+            {
+              label: 'Projected', data: upcomingData, upcoming: true,
+              borderColor: '#D8B8B4', backgroundColor: 'transparent',
+              borderDash: [5, 4], fill: false, tension: 0.25, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5
+            }
+          ]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: {
             legend: { display: false },
-            tooltip: { callbacks: {
-              label: c => ' ' + fmt.money(c.parsed.y) +
-                (schedule[c.dataIndex] && schedule[c.dataIndex].date > now ? ' · upcoming' : '')
-            } }
+            tooltip: {
+              // Distinct wording from the "Interest Accrued (est.)" stat tile
+              // above, which is a continuous straight-line estimate off the
+              // stated annual rate — this line is a running sum of the
+              // discrete scheduled payment amounts, a different calculation
+              // that won't always match it to the dollar.
+              filter: ti => ti.raw != null,
+              callbacks: {
+                label: c => ' ' + fmt.money(c.parsed.y) + (c.dataset.upcoming ? ' projected total' : ' paid to date')
+              }
+            }
           },
           scales: {
             y: { grid: { color: '#f0f0f0' }, ticks: { color: '#888', font: { size: 10 },
