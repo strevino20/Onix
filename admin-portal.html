@@ -1382,6 +1382,15 @@
 
       document.getElementById('__onix_iv_name').textContent = name;
       document.getElementById('__onix_iv_sub').textContent  = p.email || '';
+      document.getElementById('__onix_iv_name').style.display = '';
+      var editRowLP = document.getElementById('__onix_iv_name_edit');
+      if (editRowLP) editRowLP.style.display = 'none';
+      var editBtnLP = document.getElementById('__onix_iv_edit_name');
+      if (editBtnLP) {
+        editBtnLP.dataset.profileId = profileId;
+        editBtnLP.dataset.rawName = p.full_name || '';
+        editBtnLP.style.display = '';
+      }
       document.getElementById('__onix_iv_body').innerHTML =
         '<div class="onix-info-grid" style="margin-bottom:18px">' +
           ivCell('Email', p.email) +
@@ -4288,7 +4297,13 @@
       overlay.innerHTML =
         '<div class="onix-sheet wide">' +
           '<div class="onix-sheet-hd">' +
-            '<div><div class="o-eyebrow">LP Profile</div><h2 id="__onix_iv_name">Investor</h2><div class="o-sub" id="__onix_iv_sub"></div></div>' +
+            '<div><div class="o-eyebrow">LP Profile</div><h2 id="__onix_iv_name" style="display:inline-block">Investor</h2> <button type="button" id="__onix_iv_edit_name" style="display:none;margin-left:8px;background:none;border:none;color:#C0392B;font:600 .68rem/1 \'DM Sans\',sans-serif;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;text-decoration:underline;padding:0;vertical-align:middle">Edit</button>' +
+            '<div id="__onix_iv_name_edit" style="display:none;gap:8px;align-items:center;margin-top:8px">' +
+              '<input type="text" id="__onix_iv_name_input" style="padding:6px 8px;border:1px solid #E8E8E8;border-radius:2px;font-size:.85rem;font-family:inherit;width:220px">' +
+              '<button type="button" id="__onix_iv_name_save" style="background:#C0392B;color:#fff;border:1px solid #C0392B;padding:6px 12px;font:600 .68rem/1 \'DM Sans\',sans-serif;text-transform:uppercase;letter-spacing:.06em;border-radius:2px;cursor:pointer">Save</button>' +
+              '<button type="button" id="__onix_iv_name_cancel" style="background:#fff;color:#1A1A1A;border:1px solid #E8E8E8;padding:6px 12px;font:600 .68rem/1 \'DM Sans\',sans-serif;text-transform:uppercase;letter-spacing:.06em;border-radius:2px;cursor:pointer">Cancel</button>' +
+            '</div>' +
+            '<div class="o-sub" id="__onix_iv_sub"></div></div>' +
             '<button class="onix-sheet-close" id="__onix_iv_close" type="button">×</button>' +
           '</div>' +
           '<div class="onix-sheet-body" id="__onix_iv_body"></div>' +
@@ -4312,6 +4327,47 @@
           contactOv.classList.add('show');
         }
       });
+      // Edit-name control — only meaningful for the real, Supabase-backed
+      // openClientInLPModal path (which sets __onix_iv_edit_name's
+      // data-profile-id and unhides it). The legacy openInvestor(name)
+      // path below has no real profile id, so it explicitly hides this
+      // control instead of wiring it.
+      overlay.querySelector('#__onix_iv_edit_name').addEventListener('click', function(){
+        var editBtn = document.getElementById('__onix_iv_edit_name');
+        document.getElementById('__onix_iv_name_input').value = editBtn.dataset.rawName || '';
+        document.getElementById('__onix_iv_name').style.display = 'none';
+        editBtn.style.display = 'none';
+        document.getElementById('__onix_iv_name_edit').style.display = 'flex';
+        document.getElementById('__onix_iv_name_input').focus();
+      });
+      overlay.querySelector('#__onix_iv_name_cancel').addEventListener('click', function(){
+        document.getElementById('__onix_iv_name').style.display = '';
+        document.getElementById('__onix_iv_edit_name').style.display = '';
+        document.getElementById('__onix_iv_name_edit').style.display = 'none';
+      });
+      overlay.querySelector('#__onix_iv_name_save').addEventListener('click', async function(){
+        var editBtn = document.getElementById('__onix_iv_edit_name');
+        var input = document.getElementById('__onix_iv_name_input');
+        var profileId = editBtn.dataset.profileId;
+        var newName = (input.value || '').trim();
+        if (!profileId || !newName) return;
+        var saveBtn = this;
+        var orig = saveBtn.textContent;
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        var result = await OnixDB.client.from('profiles').update({ full_name: newName }).eq('id', profileId);
+        saveBtn.disabled = false;
+        saveBtn.textContent = orig;
+        if (result.error) { alert('Could not save name: ' + result.error.message); return; }
+        editBtn.dataset.rawName = newName;
+        // Not calling up() here — this handler sits in a different scope
+        // than openClientInLPModal's, and up() isn't visible from it.
+        // Same transform, inlined, to avoid a ReferenceError.
+        document.getElementById('__onix_iv_name').textContent = newName.toUpperCase();
+        document.getElementById('__onix_iv_name').style.display = '';
+        editBtn.style.display = '';
+        document.getElementById('__onix_iv_name_edit').style.display = 'none';
+      });
     }
 
     function openInvestor(name){
@@ -4319,6 +4375,14 @@
       var p = INV_PROFILES[name] || {email:'', committed:'—', deals:0, since:'—', status:'—', phone:'—', address:'—', investments:[], distributions:'—', ytd:'—'};
       document.getElementById('__onix_iv_name').textContent = name;
       document.getElementById('__onix_iv_sub').textContent = p.email;
+      // No real profile id in this legacy demo-data path — always hide
+      // the edit-name control rather than risk it operating on the wrong
+      // (or no) profile.
+      document.getElementById('__onix_iv_name').style.display = '';
+      var editRowLegacy = document.getElementById('__onix_iv_name_edit');
+      if (editRowLegacy) editRowLegacy.style.display = 'none';
+      var editBtnLegacy = document.getElementById('__onix_iv_edit_name');
+      if (editBtnLegacy) editBtnLegacy.style.display = 'none';
       document.getElementById('__onix_iv_body').innerHTML =
         '<div class="onix-info-grid" style="margin-bottom:18px">' +
           ivCell('Email', p.email) + ivCell('Phone', p.phone) +
