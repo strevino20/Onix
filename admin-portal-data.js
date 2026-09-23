@@ -3376,16 +3376,39 @@
     return (first + last).toUpperCase();
   }
 
+  // profiles.title values seen in the wild: 'admin', 'ae', 'manager', or
+  // null (a couple of legacy admin rows predate the title column being
+  // populated). Falls back to the coarser 'role' column when title is
+  // missing/unrecognized, so nobody sees a blank label.
+  const ROLE_TITLE_LABEL = {
+    admin:   { en: 'Admin',              es: 'Administrador' },
+    ae:      { en: 'Account Executive',  es: 'Ejecutivo de Cuenta' },
+    manager: { en: 'Manager',            es: 'Gerente' }
+  };
+
+  function roleTitleLabel(profile) {
+    const key = (profile && (profile.title || profile.role) || '').toLowerCase();
+    return ROLE_TITLE_LABEL[key] || { en: 'Admin', es: 'Administrador' };
+  }
+
   function renderSidebarUser(profile) {
     const name = (profile && (profile.full_name || profile.email)) || 'Admin';
     const initials = computeInitials(profile && (profile.full_name || profile.email));
+    const label = roleTitleLabel(profile);
+    const lang = activeLang();
     let attempts = 0;
     (function apply() {
       const nameEls   = document.querySelectorAll('.sidebar-user-name');
       const avatarEls = document.querySelectorAll('.sidebar-avatar');
-      if (nameEls.length || avatarEls.length) {
+      const roleEls   = document.querySelectorAll('.sidebar-user-role');
+      if (nameEls.length || avatarEls.length || roleEls.length) {
         nameEls.forEach(el => el.textContent = name);
         avatarEls.forEach(el => el.textContent = initials);
+        roleEls.forEach(el => {
+          el.setAttribute('data-en', label.en);
+          el.setAttribute('data-es', label.es);
+          el.textContent = lang === 'es' ? label.es : label.en;
+        });
         return;
       }
       if (++attempts < 30) setTimeout(apply, 100);
@@ -4358,7 +4381,7 @@
           '<path d="M3 3v18h18"/>' +
           '<path d="M7 14l4-4 4 4 5-5"/>' +
         '</svg>' +
-        '<span data-en="OUS Pasiva" data-es="OUS Pasiva">OUS Pasiva</span>';
+        '<span data-en="Deposit Sync" data-es="Sincronización de Depósitos">Deposit Sync</span>';
       if (anchor && anchor.parentNode) {
         anchor.parentNode.insertBefore(btn, anchor.nextSibling);
       } else {
@@ -4374,8 +4397,8 @@
       v.innerHTML =
         '<div class="ous-head">' +
           '<div>' +
-            '<div class="ous-eyebrow" data-en="External System" data-es="Sistema Externo">External System</div>' +
-            '<h1>OUS Pasiva</h1>' +
+            '<div class="ous-eyebrow" data-en="External System · OUS Pasiva" data-es="Sistema Externo · OUS Pasiva">External System · OUS Pasiva</div>' +
+            '<h1 data-en="Deposit Data Sync" data-es="Sincronización de Depósitos">Deposit Data Sync</h1>' +
             '<div class="ous-rule"></div>' +
           '</div>' +
           '<div id="ous-status" class="ous-status">' +
@@ -4401,7 +4424,7 @@
         // ---- Catalogos ----------------------------------------------
         '<div class="ous-card">' +
           '<h2 data-en="Catalogs" data-es="Catálogos">Catalogs</h2>' +
-          '<div class="sub" data-en="Reference lookups live from OUS — products, segments, payment frequencies." data-es="Consultas de referencia en vivo desde OUS — productos, segmentos, frecuencias de pago.">Reference lookups live from OUS — products, segments, payment frequencies.</div>' +
+          '<div class="sub" data-en="What OUS calls things like loan products and payment schedules — handy if a term on a client&#39;s account looks unfamiliar." data-es="Cómo nombra OUS cosas como productos y frecuencias de pago — útil si un término en la cuenta de un cliente no es claro.">What OUS calls things like loan products and payment schedules — handy if a term on a client&#39;s account looks unfamiliar.</div>' +
           '<div id="ous-catalogos">' +
             '<div class="muted" data-en="Loading…" data-es="Cargando…">Loading…</div>' +
           '</div>' +
@@ -4411,39 +4434,28 @@
         // ---- Closing balances ---------------------------------------
         '<div class="ous-card">' +
           '<h2 data-en="Closing Balances" data-es="Saldos al Cierre">Closing Balances</h2>' +
-          '<div class="sub" data-en="Balances on every active credit as of a closing date." data-es="Saldos de cada crédito activo en una fecha de cierre.">Balances on every active credit as of a closing date.</div>' +
+          '<div class="sub" data-en="What OUS reports as the balance on every active account for a given date — useful for double-checking a number a client asks about." data-es="Lo que OUS reporta como saldo de cada cuenta activa en una fecha determinada — útil para verificar un número que un cliente pregunta.">What OUS reports as the balance on every active account for a given date — useful for double-checking a number a client asks about.</div>' +
           '<div class="ous-controls">' +
             '<label><span data-en="Closing date" data-es="Fecha de cierre">Closing date</span><input type="date" id="ous-cierre-date" value="' + today + '"></label>' +
             '<button class="ous-btn" id="ous-cierre-btn" type="button" data-en="Fetch" data-es="Consultar">Fetch</button>' +
           '</div>' +
-          '<div id="ous-cierre-result" class="ous-result"><span class="muted" data-en="No fetch yet." data-es="Sin consulta aún.">No fetch yet.</span></div>' +
+          '<div id="ous-cierre-result" class="ous-result"><span class="muted" data-en="Loading…" data-es="Cargando…">Loading…</span></div>' +
         '</div>' +
 
         // ---- Coming due --------------------------------------------
         '<div class="ous-card">' +
           '<h2 data-en="Credits Coming Due" data-es="Créditos por Vencer">Credits Coming Due</h2>' +
-          '<div class="sub" data-en="Credits scheduled to fall due within the next N days." data-es="Créditos programados a vencer en los próximos N días.">Credits scheduled to fall due within the next N days.</div>' +
+          '<div class="sub" data-en="Accounts coming due soon, straight from OUS — useful for planning follow-up with clients." data-es="Cuentas por vencer pronto, directo de OUS — útil para planear seguimiento con clientes.">Accounts coming due soon, straight from OUS — useful for planning follow-up with clients.</div>' +
           '<div class="ous-controls">' +
             '<label><span data-en="Days ahead" data-es="Días por delante">Days ahead</span><input type="number" id="ous-vencer-days" value="30" min="1" max="365" step="1"></label>' +
             '<button class="ous-btn" id="ous-vencer-btn" type="button" data-en="Fetch" data-es="Consultar">Fetch</button>' +
           '</div>' +
-          '<div id="ous-vencer-result" class="ous-result"><span class="muted" data-en="No fetch yet." data-es="Sin consulta aún.">No fetch yet.</span></div>' +
-        '</div>' +
-
-        // ---- Payload capture (dev tool for setting up sync) --------
-        '<div class="ous-card" style="border-top-color:#888">' +
-          '<h2 data-en="Capture OUS Payloads" data-es="Capturar Cargas OUS">Capture OUS Payloads</h2>' +
-          '<div class="sub" data-en="Snapshots the raw JSON from all three OUS endpoints into Supabase so the dev team can finalize the sync mapping. Safe to run any time." data-es="Guarda la respuesta cruda de los tres endpoints OUS en Supabase para que el equipo de desarrollo cierre el mapeo de la sincronización. Se puede ejecutar en cualquier momento.">Snapshots the raw JSON from all three OUS endpoints into Supabase so the dev team can finalize the sync mapping. Safe to run any time.</div>' +
-          '<div class="ous-controls">' +
-            '<button class="ous-btn" id="ous-capture-btn" type="button" data-en="Capture Payloads Now" data-es="Capturar Ahora">Capture Payloads Now</button>' +
-          '</div>' +
-          '<div id="ous-capture-result" class="ous-result"><span class="muted" data-en="No capture yet." data-es="Sin captura aún.">No capture yet.</span></div>' +
+          '<div id="ous-vencer-result" class="ous-result"><span class="muted" data-en="Loading…" data-es="Cargando…">Loading…</span></div>' +
         '</div>';
       main.appendChild(v);
 
       v.querySelector('#ous-cierre-btn').addEventListener('click', () => fetchCierreSaldos());
       v.querySelector('#ous-vencer-btn').addEventListener('click', () => fetchPorVencer());
-      v.querySelector('#ous-capture-btn').addEventListener('click', () => captureOUSPayloads());
       v.querySelector('#ous-sync-btn').addEventListener('click', () => runOUSSync());
       refreshOUSSyncChip();
       if (window.__onixOUSSyncPoll) clearInterval(window.__onixOUSSyncPoll);
@@ -4454,9 +4466,37 @@
 
   // ---------------- Catalogos ----------------------------------------
 
+  // Friendly section labels for the Catalogs card. OUS's raw keys are
+  // Spanish/technical (e.g. "periodicidades"); anything not in this map
+  // falls back to a humanized version of the raw key (snake_case -> Title
+  // Case) rather than showing it as-is.
+  const CATALOG_KEY_LABELS = {
+    productos:      { en: 'Products',            es: 'Productos' },
+    segmentos:      { en: 'Segments',             es: 'Segmentos' },
+    periodicidades: { en: 'Payment Frequencies',  es: 'Frecuencias de Pago' },
+    tipos_credito:  { en: 'Loan Types',           es: 'Tipos de Crédito' },
+    estatus:        { en: 'Status Types',         es: 'Tipos de Estatus' },
+    monedas:        { en: 'Currencies',           es: 'Monedas' }
+  };
+
+  function humanizeKey(key) {
+    return String(key).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function catalogKeyLabel(key, lang) {
+    const m = CATALOG_KEY_LABELS[key];
+    if (m) return lang === 'es' ? m.es : m.en;
+    return humanizeKey(key);
+  }
+
+  // Cached so the EN/ES toggle can re-render without another fetch.
+  let __ousCatalogosPayload = null;
+
   function renderCatalogos(payload) {
+    __ousCatalogosPayload = payload;
     const root = document.getElementById('ous-catalogos');
     if (!root) return;
+    const lang = activeLang();
     const data = (payload && payload.data) || {};
 
     // Build a chip-row for every list-shaped field in `data`. Each
@@ -4482,12 +4522,12 @@
                  '</span>';
         }).join('');
         sections.push(
-          '<div class="ous-kv-row"><span class="k">' + esc(key) + '</span>' +
+          '<div class="ous-kv-row"><span class="k">' + esc(catalogKeyLabel(key, lang)) + '</span>' +
           '<div class="ous-chip-row">' + chips + '</div></div>'
         );
       } else if (val != null && typeof val !== 'object') {
         sections.push(
-          '<div class="ous-kv-row"><span class="k">' + esc(key) + '</span><span>' +
+          '<div class="ous-kv-row"><span class="k">' + esc(catalogKeyLabel(key, lang)) + '</span><span>' +
             esc(String(val)) + '</span></div>'
         );
       }
@@ -4495,30 +4535,38 @@
 
     root.innerHTML = sections.length
       ? sections.join('')
-      : '<div class="muted">No catalog entries returned.</div>';
+      : '<div class="muted">' + esc(lang === 'es' ? 'No hay entradas de catálogo.' : 'No catalog entries returned.') + '</div>';
+  }
+  function repaintCatalogos() {
+    if (__ousCatalogosPayload) renderCatalogos(__ousCatalogosPayload);
   }
 
   // ---------------- Helpers for tabular results ----------------------
 
-  function ousRenderTable(rows) {
-    if (!Array.isArray(rows) || !rows.length) return null;
-    // Collect every key across the rows so missing fields don't break
-    // the alignment.
-    const cols = [];
-    const seen = {};
-    rows.forEach(r => {
-      if (r && typeof r === 'object') {
-        Object.keys(r).forEach(k => { if (!seen[k]) { seen[k] = true; cols.push(k); } });
-      }
-    });
-    if (!cols.length) return null;
-    const thead = '<thead><tr>' + cols.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead>';
-    const tbody = '<tbody>' + rows.map(r => '<tr>' + cols.map(c => {
-      const v = r ? r[c] : '';
-      const isNumeric = v != null && v !== '' && !isNaN(Number(v));
-      return '<td class="' + (isNumeric ? 'num' : '') + '">' + esc(v == null ? '' : String(v)) + '</td>';
-    }).join('') + '</tr>').join('') + '</tbody>';
-    return '<table class="ous-table">' + thead + tbody + '</table>';
+  // Friendly, plain-language message for a failed OUS call. The technical
+  // detail (status code, raw error text) still goes to the console for
+  // whoever needs to debug it -- it just never reaches the admin's screen.
+  function ousFriendlyErrorMessage(err, lang) {
+    console.error('[OUS]', err);
+    const status = err && err.status;
+    if (status === 401) {
+      return lang === 'es'
+        ? 'Tu sesión expiró — vuelve a iniciar sesión.'
+        : 'Your session expired — please log in again.';
+    }
+    if (status && status >= 500) {
+      return lang === 'es'
+        ? 'OUS no está respondiendo en este momento. Intenta de nuevo en unos minutos.'
+        : 'OUS isn\u2019t responding right now. Try again in a few minutes.';
+    }
+    if (!status) {
+      return lang === 'es'
+        ? 'No se pudo conectar con OUS. Verifica tu conexión e intenta de nuevo.'
+        : 'Couldn\u2019t connect to OUS. Check your connection and try again.';
+    }
+    return lang === 'es'
+      ? 'Algo salió mal al consultar OUS. Intenta de nuevo o contacta a soporte.'
+      : 'Something went wrong contacting OUS. Try again or contact support.';
   }
 
   function ousShowResult(elId, html, isErr) {
@@ -4550,24 +4598,108 @@
 
   // ---------------- /api/creditos-cierre-saldos ----------------------
 
+  // Friendly column labels for the Closing Balances table -- field names
+  // confirmed against server.js's own cierre-saldos -> loans mapping
+  // (runOUSSync), not guessed. Anything not in this map falls back to the
+  // raw key, which is fine for unexpected fields.
+  const CS_COL_LABELS = {
+    nombre_cliente:      { en: 'Client',            es: 'Cliente' },
+    id_credito:          { en: 'Credit ID',         es: 'ID Crédito' },
+    producto:            { en: 'Product',           es: 'Producto' },
+    tipo_credito:        { en: 'Loan Type',         es: 'Tipo de Crédito' },
+    fecha_inicio:        { en: 'Start Date',        es: 'Fecha de Inicio' },
+    fecha_termino:       { en: 'Maturity Date',     es: 'Fecha de Término' },
+    monto_otorgado:      { en: 'Amount Granted',    es: 'Monto Otorgado' },
+    saldo_total_capital: { en: 'Current Balance',   es: 'Saldo Actual' },
+    tasa_anualizada:     { en: 'Annual Rate (%)',   es: 'Tasa Anual (%)' },
+    cuota:               { en: 'Payment Amount',    es: 'Cuota' },
+    plazo:               { en: 'Term',              es: 'Plazo' },
+    status_contable:     { en: 'Status',            es: 'Estatus' },
+    dias_mora:           { en: 'Days Overdue',      es: 'Días de Mora' },
+    rfc:                 { en: 'RFC',               es: 'RFC' },
+    correo:              { en: 'Email',             es: 'Correo' },
+    regimen:             { en: 'Tax Regime',        es: 'Régimen' },
+    promotor:            { en: 'Relationship Manager', es: 'Promotor' },
+    clabe:               { en: 'Bank CLABE',        es: 'CLABE Bancaria' },
+    cuenta:              { en: 'Bank Account',      es: 'Cuenta Bancaria' }
+  };
+
+  function ousRenderCierreSaldosTable(rows) {
+    if (!Array.isArray(rows) || !rows.length) return null;
+    const lang = activeLang();
+    const knownOrder = Object.keys(CS_COL_LABELS);
+    const seen = {};
+    const cols = [];
+    knownOrder.forEach(k => { if (rows.some(r => r && k in r)) { seen[k] = true; cols.push(k); } });
+    rows.forEach(r => {
+      if (r && typeof r === 'object') {
+        Object.keys(r).forEach(k => { if (!seen[k]) { seen[k] = true; cols.push(k); } });
+      }
+    });
+    if (!cols.length) return null;
+
+    const labelFor = (k) => {
+      const m = CS_COL_LABELS[k];
+      return m ? (lang === 'es' ? m.es : m.en) : k;
+    };
+
+    const thead = '<thead><tr>' + cols.map(c => '<th>' + esc(labelFor(c)) + '</th>').join('') + '</tr></thead>';
+    const tbody = '<tbody>' + rows.map(r => '<tr>' + cols.map(c => {
+      const v = r ? r[c] : '';
+      const isNumeric = v != null && v !== '' && !isNaN(Number(v));
+      return '<td class="' + (isNumeric ? 'num' : '') + '">' + esc(v == null ? '' : String(v)) + '</td>';
+    }).join('') + '</tr>').join('') + '</tbody>';
+    return '<table class="ous-table">' + thead + tbody + '</table>';
+  }
+
+  // Cache the last fetched rows so we can re-render in the new language
+  // when the user clicks the EN/ES toggle -- same pattern as por-vencer below.
+  let __ousCierreRows = null;
+  let __ousCierreFecha = null;
+  let __ousCierreFetchedAt = null;
+  function repaintCierreSaldos() {
+    if (!__ousCierreRows) return;
+    const lang = activeLang();
+    const table = ousRenderCierreSaldosTable(__ousCierreRows) || '';
+    const labels = lang === 'es'
+      ? { rows: 'fila(s)', noRows: 'sin filas', fetched: 'obtenido' }
+      : { rows: 'row(s)', noRows: 'no rows', fetched: 'fetched' };
+    const meta = '<div class="ous-meta-line">fecha_cierre=' + esc(__ousCierreFecha) +
+                 ' · ' + (__ousCierreRows.length ? __ousCierreRows.length + ' ' + labels.rows : labels.noRows) +
+                 ' · ' + labels.fetched + ' ' + (__ousCierreFetchedAt || '') +
+                 '</div>';
+    ousShowResult('ous-cierre-result', table + meta);
+  }
+
   async function fetchCierreSaldos() {
     const dateEl = document.getElementById('ous-cierre-date');
     const btnEl  = document.getElementById('ous-cierre-btn');
     if (!dateEl || !btnEl) return;
     const fecha_cierre = dateEl.value;
-    if (!fecha_cierre) { ousShowResult('ous-cierre-result', 'Pick a date first.', true); return; }
-    ousShowResult('ous-cierre-result', '<span class="muted">Loading…</span>');
-    btnEl.disabled = true; const orig = btnEl.textContent; btnEl.textContent = 'Loading…';
+    const lang = activeLang();
+    const loadingTxt = lang === 'es' ? 'Cargando…' : 'Loading…';
+    if (!fecha_cierre) {
+      ousShowResult('ous-cierre-result', lang === 'es' ? 'Elige una fecha primero.' : 'Pick a date first.', true);
+      return;
+    }
+    ousShowResult('ous-cierre-result', '<span class="muted">' + esc(loadingTxt) + '</span>');
+    btnEl.disabled = true; const orig = btnEl.textContent; btnEl.textContent = loadingTxt;
     try {
       const payload = await ousFetch('/api/creditos-cierre-saldos', { fecha_cierre });
       const rows = ousExtractRows(payload);
-      const table = ousRenderTable(rows);
-      const meta = '<div class="ous-meta-line">fecha_cierre=' + esc(fecha_cierre) +
-                   ' · ' + (rows ? rows.length + ' row(s)' : 'no rows') +
-                   ' · fetched ' + new Date().toLocaleTimeString() + '</div>';
-      ousShowResult('ous-cierre-result', (table || '<pre class="ous-pre">' + esc(JSON.stringify(payload, null, 2)) + '</pre>') + meta);
+      __ousCierreRows = rows || [];
+      __ousCierreFecha = fecha_cierre;
+      __ousCierreFetchedAt = new Date().toLocaleTimeString();
+      const table = ousRenderCierreSaldosTable(rows);
+      if (!table) {
+        ousShowResult('ous-cierre-result',
+          '<span class="muted">' + esc(lang === 'es' ? 'No se pudo leer esta información. Contacta a soporte si esto persiste.' : 'Couldn\u2019t read this data. Contact support if this keeps happening.') + '</span>');
+        console.error('[OUS] Unexpected cierre-saldos shape:', payload);
+      } else {
+        repaintCierreSaldos();
+      }
     } catch (err) {
-      ousShowResult('ous-cierre-result', esc(err.message || String(err)), true);
+      ousShowResult('ous-cierre-result', esc(ousFriendlyErrorMessage(err, lang)), true);
     } finally {
       btnEl.disabled = false; btnEl.textContent = orig;
     }
@@ -4670,10 +4802,14 @@
                  '</div>';
     ousShowResult('ous-vencer-result', table + meta);
   }
-  // Re-paint whenever the EN/ES toggle is clicked.
+  // Re-paint the three tables whenever the EN/ES toggle is clicked.
   document.addEventListener('click', (e) => {
     if (e.target && e.target.closest && e.target.closest('[data-lang-set]')) {
-      setTimeout(repaintPorVencer, 50);
+      setTimeout(() => {
+        repaintCatalogos();
+        repaintCierreSaldos();
+        repaintPorVencer();
+      }, 50);
     }
   });
 
@@ -4698,49 +4834,15 @@
       __ousPorVencerFetchedAt = new Date().toLocaleTimeString();
       const table = ousRenderPorVencerTable(rows);
       if (!table) {
-        // Fall back to raw JSON for diagnostic visibility if the shape is unexpected
-        ousShowResult('ous-vencer-result', '<pre class="ous-pre">' + esc(JSON.stringify(payload, null, 2)) + '</pre>');
+        ousShowResult('ous-vencer-result',
+          '<span class="muted">' + esc(lang === 'es' ? 'No se pudo leer esta información. Contacta a soporte si esto persiste.' : 'Couldn\u2019t read this data. Contact support if this keeps happening.') + '</span>');
+        console.error('[OUS] Unexpected por-vencer shape:', payload);
       } else {
         repaintPorVencer();
       }
     } catch (err) {
-      ousShowResult('ous-vencer-result', esc(err.message || String(err)), true);
+      ousShowResult('ous-vencer-result', esc(ousFriendlyErrorMessage(err, lang)), true);
     }  finally {
-      btnEl.disabled = false; btnEl.textContent = orig;
-    }
-  }
-
-  // ---------------- Payload capture (dev tool) -----------------------
-  // POSTs to /api/ous-capture, which fires all three OUS endpoints in
-  // one shot on the Railway proxy and stages the raw JSON in the
-  // public.ous_raw_capture Supabase table for developer inspection.
-  async function captureOUSPayloads() {
-    const btnEl = document.getElementById('ous-capture-btn');
-    const resEl = document.getElementById('ous-capture-result');
-    if (!btnEl || !resEl) return;
-    const lang = activeLang();
-    const loadingTxt = lang === 'es' ? 'Capturando…' : 'Capturing…';
-    ousShowResult('ous-capture-result', '<span class="muted">' + esc(loadingTxt) + '</span>');
-    btnEl.disabled = true; const orig = btnEl.textContent; btnEl.textContent = loadingTxt;
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const payload = await ousFetch('/api/ous-capture', { fecha_cierre: today, dias: 90 });
-      const rows = (payload && payload.results) || [];
-      const lines = rows.map(r => {
-        const status = r.error ? 'ERROR' : ('HTTP ' + r.http_status);
-        const saved  = r.saved ? '<span style="color:#3B8B3B">saved ✓</span>' : ('<span style="color:#C0392B">save failed: ' + esc(r.save_error || '?') + '</span>');
-        const detail = r.error ? ' — ' + esc(r.error) : '';
-        return '<div><b>' + esc(r.endpoint) + '</b> · ' + status + ' · ' + saved + detail + '</div>';
-      }).join('');
-      const doneNote = (lang === 'es'
-        ? 'Cargas guardadas en Supabase (public.ous_raw_capture). Enviar al equipo de desarrollo.'
-        : 'Payloads staged in Supabase (public.ous_raw_capture). Send to dev team.');
-      ousShowResult('ous-capture-result',
-        lines +
-        '<div style="margin-top:10px;font-size:.72rem;color:#888">' + esc(doneNote) + '</div>');
-    } catch (err) {
-      ousShowResult('ous-capture-result', esc(err.message || String(err)), true);
-    } finally {
       btnEl.disabled = false; btnEl.textContent = orig;
     }
   }
@@ -4777,7 +4879,7 @@
     } catch (err) {
       const chip = document.getElementById('ous-sync-chip');
       if (chip) {
-        chip.textContent = (lang === 'es' ? 'Error: ' : 'Error: ') + (err.message || String(err));
+        chip.textContent = ousFriendlyErrorMessage(err, lang);
         chip.style.color = '#C0392B';
       }
     } finally {
@@ -4837,19 +4939,20 @@
       const j = await r.json();
       if (j.ous_logged_in) {
         pill.classList.add('ok');
-        const time = new Date(j.token_acquired_at).toLocaleTimeString();
-        setOusStatus(txt,
-          'Connected · token acquired ' + time,
-          'Conectado · token obtenido ' + time);
+        setOusStatus(txt, 'Connected', 'Conectado');
       } else {
         pill.classList.add('warn');
         setOusStatus(txt,
-          'Proxy not logged in (see Railway logs)',
-          'Proxy no autenticado (ver logs en Railway)');
+          'Connection issue \u2014 contact support',
+          'Problema de conexi\u00f3n \u2014 contacta a soporte');
+        console.warn('[OUS] proxy reachable but not logged in to OUS:', j);
       }
     } catch (err) {
       pill.classList.add('warn');
-      setOusStatus(txt, 'Cannot reach proxy', 'No se puede conectar al proxy');
+      setOusStatus(txt,
+        'Connection issue \u2014 contact support',
+        'Problema de conexi\u00f3n \u2014 contacta a soporte');
+      console.error('[OUS] health check failed:', err);
     }
   }
 
@@ -4859,16 +4962,24 @@
     const wait = () => new Promise(r => setTimeout(r, 250));
     while (tries++ < 40 && !ensureOUSSidebarAndView()) await wait();
     loadOUSHealth();
+    // Auto-load all three read-only sections with their default
+    // parameters so an admin sees real data the moment they open the
+    // tab, instead of an empty "no fetch yet" state requiring a click.
+    fetchCierreSaldos();
+    fetchPorVencer();
+    const lang = activeLang();
     try {
       const payload = await ousFetch('/api/catalogos');
       renderCatalogos(payload);
       const meta = document.getElementById('ous-catalogos-meta');
       if (meta && payload && payload.data && payload.data.fechaCierre) {
-        meta.textContent = 'Most recent fechaCierre reported by OUS: ' + payload.data.fechaCierre;
+        meta.textContent = (lang === 'es'
+          ? 'Fecha de cierre m\u00e1s reciente reportada por OUS: '
+          : 'Most recent closing date reported by OUS: ') + payload.data.fechaCierre;
       }
     } catch (err) {
       const root = document.getElementById('ous-catalogos');
-      if (root) root.innerHTML = '<div class="ous-result err">' + esc(err.message || String(err)) + '</div>';
+      if (root) root.innerHTML = '<div class="ous-result err">' + esc(ousFriendlyErrorMessage(err, lang)) + '</div>';
     }
   }
 
