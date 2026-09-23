@@ -1771,20 +1771,20 @@
             <input name="name" required list="${listId}" placeholder="Pick or type…" autocomplete="off" style="${INPUT_STYLE}">
           </div>
           <div>
-            <div class="k">Dropbox share link</div>
-            <input name="dropbox_url" type="url" required placeholder="https://www.dropbox.com/s/..." style="${INPUT_STYLE}">
+            <div class="k">Google Drive share link</div>
+            <input name="dropbox_url" type="url" required placeholder="https://drive.google.com/file/d/..." style="${INPUT_STYLE}">
           </div>
           <button type="submit" class="oac-btn red" style="padding:10px 14px">Add</button>
         </form>
         <div data-doc-warn style="display:none;font-size:.76rem;color:#A07818;margin-top:6px"></div>
         <div style="font-size:.72rem;color:#9B9590;margin-top:8px;line-height:1.5">
-          Upload the file to Dropbox, click <b>Share → Copy link</b>, and paste it here. Clients see a <b>View</b> link to open it.
+          Upload the file to Google Drive, click <b>Share → General access → Anyone with the link</b>, then <b>Copy link</b> and paste it here. Clients see a <b>View</b> link to open it.
         </div>
       </div>`;
   }
 
-  function isLikelyDropboxLink(url) {
-    return /^https?:\/\/(www\.)?(dropbox\.com|dl\.dropboxusercontent\.com)\//i.test(String(url || ''));
+  function isLikelyGoogleDriveLink(url) {
+    return /^https?:\/\/(www\.)?(drive|docs)\.google\.com\//i.test(String(url || ''));
   }
 
   function wireDocsManager(scope, table, parentCol, parentId, onChange) {
@@ -1819,10 +1819,10 @@
         const fd = new FormData(form);
         const name = strOrNull(fd.get('name'));
         const url  = strOrNull(fd.get('dropbox_url'));
-        // Validate it looks like a Dropbox link; warn but allow other share links.
-        if (url && !isLikelyDropboxLink(url)) {
+        // Validate it looks like a Google Drive link; warn but allow other share links.
+        if (url && !isLikelyGoogleDriveLink(url)) {
           warn.style.display = 'block';
-          warn.textContent = "That doesn't look like a Dropbox link. Click Add again to use it anyway, or paste a dropbox.com share link.";
+          warn.textContent = "That doesn't look like a Google Drive link. Click Add again to use it anyway, or paste a drive.google.com share link.";
           if (form.dataset.warned !== url) { form.dataset.warned = url; return; }
         }
         warn.style.display = 'none';
