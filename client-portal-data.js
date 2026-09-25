@@ -2278,7 +2278,8 @@
   }
 
   // ---------- 12-Month Performance chart (Dashboard) ----------
-  // Net portfolio = sum of investments active by month + cumulative distributions to that month.
+  // Net portfolio = sum of investments active by month + cumulative distributions
+  // to that month + cumulative deposit interest paid to that month.
   function renderPerformanceChart(investments, distributions) {
     const canvas = document.getElementById('perfChart');
     if (!canvas || typeof Chart === 'undefined') return;
@@ -2288,9 +2289,20 @@
       const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
       months.push(d);
     }
+    // OUS Pasiva deposits pay interest out monthly with a constant balance,
+    // and nothing records those payouts in the distributions table — so
+    // principal + distributions alone draws a flat line for every depositor.
+    // Add the interest from each deposit's own schedule (same source as the
+    // deposit detail Interest Schedule chart), counting only payment dates
+    // that have already passed. Estimated from the deposit's terms, not from
+    // confirmed payout records.
+    const depositPayments = (investments || [])
+      .filter(i => i.venture_type === 'deposit' && i.status !== 'exited')
+      .flatMap(i => buildDepositSchedule(i));
     const values = months.map(m => {
       // End-of-month cutoff
       const cutoff = new Date(m.getFullYear(), m.getMonth() + 1, 0);
+      const paidThrough = cutoff < today ? cutoff : today;
       // parseLocalDate, not new Date() — a start_date/paid_at of the 1st of
       // the following month would otherwise parse as UTC midnight, read as
       // the prior day locally, and land on the wrong side of `cutoff`.
@@ -2300,10 +2312,13 @@
       const distSum = (distributions || [])
         .filter(d => d.paid_at && parseLocalDate(d.paid_at) <= cutoff)
         .reduce((s, d) => s + Number(d.amount || 0), 0);
+      const depositInterest = depositPayments
+        .filter(p => p.date <= paidThrough)
+        .reduce((s, p) => s + Number(p.amount || 0), 0);
       // Real dollars. This used to round to the nearest $1,000 ("$K"), which
       // flattened any portfolio under seven figures into a coarse staircase
       // and rendered smaller balances as a misleading $0K.
-      return activeInv + distSum;
+      return activeInv + distSum + depositInterest;
     });
 
     try { const ex = Chart.getChart(canvas); if (ex) ex.destroy(); } catch (e) {}
@@ -2320,7 +2335,9 @@
     const axisMoney = (v) => {
       const n = Number(v) || 0;
       const abs = Math.abs(n);
-      if (abs >= 1000000) return '$' + (n / 1000000).toFixed(abs % 1000000 === 0 ? 0 : 1) + 'M';
+      // Up to 2 decimals, trailing zeros dropped — ticks $50K apart need the
+      // second digit ($2.05M / $2.1M) or neighbouring labels collide.
+      if (abs >= 1000000) return '$' + parseFloat((n / 1000000).toFixed(2)) + 'M';
       if (abs >= 1000)    return '$' + Math.round(n / 1000) + 'K';
       return '$' + Math.round(n);
     };
