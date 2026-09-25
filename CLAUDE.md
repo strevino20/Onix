@@ -328,7 +328,7 @@ underlying backend, only the same vendor.
   version needs to as well.
 - **`verified_at`/`verified_by` aren't being populated consistently**
   today — confirmed live: of the 14 currently-verified rows, 6 have a
-  real `verified_at` timestamp (all 6 are the Hagemeister-family rows
+  real `verified_at` timestamp (all 6 belong to one client family
   and share one exact timestamp, consistent with a single batch
   action) and 8 have `verified_at = null`, meaning `verified` was
   flipped directly via SQL/Table Editor without setting the other two
@@ -336,7 +336,7 @@ underlying backend, only the same vendor.
   all three columns together in whatever manual workflow is used
   until a real admin UI exists (see "Not yet built").
 - **A verified match with no live-sync coverage yet writes no loan.**
-  Confirmed live: id_credito 380 (Ignacio Arroyo Kuribreña) is
+  Confirmed live: id_credito 380 is
   verified with a matched profile, but its `last_seen_at` has never
   advanced past its original batch-population timestamp — meaning the
   one real sync run so far didn't include that credit in OUS's
@@ -684,7 +684,7 @@ pending.
 
 Re-raised and re-investigated: 6 rows have `verified_at` set with
 `verified_by` null (confirmed live, unchanged from the original Aug 20
-finding above — still exactly the Hagemeister-family rows), 8 rows
+finding above — still exactly the same one-family rows), 8 rows
 have both null, 64 rows have both set correctly. Traced both current
 write paths — the "Verify Match" UI button (`admin-portal-data.js`, a
 single atomic `.update()` setting `matched_profile_id`/`verified`/
@@ -986,9 +986,8 @@ correct rendering) for the first time since the repo transfer:
   correctly showed "No active loan" (this client's `loans` row is
   `data_source = 'ous_pasiva'`, i.e. a deposit, not a real loan — not a
   bug that "My Loan" is empty for this client type).
-- An Activa borrower client (`ph@onixfinance.com` — a Hagemeister-family
-  client account, not Patrick's own staff login; his actual admin login
-  is `admin@onixfinance.com` per the July audit) — real active loan
+- An Activa borrower client (a real client account, not a staff login —
+  specific test logins are kept out of this public file) — real active loan
   rendered correctly, including a genuinely blank Monthly
   Payment/Next Due on one of their 12 loans, traced to real missing
   source data (`monthly_payment IS NULL`, a single-payment/balloon
@@ -998,26 +997,14 @@ correct rendering) for the first time since the repo transfer:
   at all unless an admin manually sets `next_due_date` on the Edit Loan
   form. Not fixed this session — a product decision, not a bug fix.
 
-### Client accounts share a password — not universally, confirmed partial
+### Client account credential hygiene — open item, details kept private
 
-Santi discovered that at least some client accounts share one login
-password across accounts (useful for testing, but a real security
-concern with real client financial data on the line — separate from,
-and not fixed by, Supabase's still-disabled "Leaked Password
-Protection," which only checks against known breach dumps and
-wouldn't catch internal password reuse). **Confirmed this does NOT
-apply to every client**: one Activa client
-(`pedroteyuca@gmail.com`, loan `156`) has never signed in
-(`last_sign_in_at IS NULL`) and the shared password did not work for
-it. Working theory, not fully confirmed: bulk/auto-created Pasiva
-clients share the default password from however that batch process set
-them up; individually admin-created Activa clients (via the "Create New
-Client" flow, PR #166) may each have gotten a distinct password at
-creation time. **Before assuming a given test client's login works,
-check `auth.users.last_sign_in_at` for that email first** — null means
-don't assume the shared password applies. This is Patrick's decision to
-prioritize, not something fixed here — flagging it is as far as this
-session went.
+A credential-hygiene concern with some client accounts was found on
+Sept 18 and is still open (Patrick's call to prioritize). The details
+are deliberately **not** recorded in this file, because the repo is
+public — ask Santi, or check the private session notes. **This repo is
+public: never put client emails, client names, test logins, or
+credential details in CLAUDE.md or any other committed file.**
 
 ### Loose end
 
