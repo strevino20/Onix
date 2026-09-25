@@ -1,18 +1,41 @@
-# Stray demo / backup files that should not be served in production
-Onix Finance Admin Portal.html
-FinalOnixProject5.5.html
-onix-finance.html
-real supabase.js file
-supabase-login.js-(new login)
-README.md
-.github
+# Allowlist: Vercel deploys ONLY the files listed below; everything else in
+# the repo root is ignored.
+#
+# Previously this was a blocklist, and anything not named here was served
+# publicly on the production domain — including CLAUDE.md (internal notes
+# with client PII and infrastructure details), permissions-rls.sql,
+# supabase/migrations/*, and _archive/* (whose blocklist entries didn't
+# even match the real filenames). A new file added to the repo should be
+# private by default, not public by default.
+#
+# Adding a page or script the site actually loads? Add it here too, or it
+# will 404 in production.
+#
+# Note on the Railway backend files (package.json, server.js, etc.): they
+# must stay excluded — package.json's "express" dependency and "start"
+# script make Vercel auto-detect the repo as an Express app and deploy
+# server.js instead of the static HTML. The allowlist excludes them
+# implicitly.
 
-# Railway backend files — these belong to the separate Express proxy
-# service (server.js), not this static frontend. Their presence (in
-# particular package.json's "express" dependency and "start" script)
-# makes Vercel auto-detect this whole repo as an Express app and
-# deploy server.js instead of serving the static HTML.
-package.json
-package-lock.json
-server.js
-railway-status-snapshot.js
+/*
+
+# Pages (reset-password and accept-invite are reached from email links)
+!/index.html
+!/login.html
+!/signup.html
+!/reset-password.html
+!/accept-invite.html
+!/admin-portal.html
+!/client-portal.html
+
+# Scripts
+!/supabase.js
+!/i18n.js
+!/admin-portal-data.js
+!/client-portal-data.js
+
+# Static assets
+!/assets
+
+# Vercel config (security headers + CSP) — read by Vercel, not served
+!/vercel.json
