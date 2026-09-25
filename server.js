@@ -1248,10 +1248,17 @@ async function fillProfileMissing(id, fields) {
   });
 }
 
-// Upsert one loan by loan_id_display. Always takes OUS values.
+// Upsert one loan by (data_source, loan_id_display). Always takes OUS values.
+// loan_id_display is OUS's bare id_credito, and Pasiva and Activa number
+// their credits independently — the same number can be a deposit in one
+// and a loan in the other. Keying on loan_id_display alone let each sync
+// overwrite the other's row (a depositor's deposit ended up labelled
+// 'ous_activa' and shown to them as a loan), so both syncs now key on
+// the pair and Pasiva stamps its data_source explicitly.
 async function upsertLoan(row) {
   const body = {
     loan_id_display:  row.loan_id_display,
+    data_source:      'ous_pasiva',
     user_id:          row.user_id,
     product:          row.product || null,
     loan_type:        row.loan_type || null,
@@ -1269,7 +1276,7 @@ async function upsertLoan(row) {
     renewal_requested:!!row.renewal_requested,
     ous_synced_at:    new Date().toISOString()
   };
-  const r = await sbFetch('/rest/v1/loans?on_conflict=loan_id_display', {
+  const r = await sbFetch('/rest/v1/loans?on_conflict=data_source,loan_id_display', {
     method: 'POST',
     headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify(body)
@@ -1628,10 +1635,9 @@ async function tryAutoMatchByRfc(matchRow, rawRfc) {
 // later un-verified the match — e.g. caught a mistake), flag that loan
 // status='review' rather than silently leaving it looking untouched.
 // Scoped to data_source='ous_activa' so this can never reach a Pasiva
-// or manually-created loan (belt-and-suspenders: loan_id_display is
-// already globally UNIQUE, so at most one row could ever match on that
-// alone — the data_source filter just makes the intent unambiguous to
-// a future reader). The status=neq.review filter just avoids a wasted
+// or manually-created loan — required, not just belt-and-suspenders:
+// loan_id_display is only unique per data_source, and a Pasiva deposit
+// can share the same number. The status=neq.review filter just avoids a wasted
 // no-op write when already flagged. Safe to call unconditionally — a
 // non-match is simply zero rows patched, not an error.
 async function flagUnverifiedActivaLoan(id_credito) {
@@ -1650,8 +1656,9 @@ async function flagUnverifiedActivaLoan(id_credito) {
   }
 }
 
-// Upsert one Activa-sourced loan by loan_id_display (= id_credito) —
-// same on_conflict + merge-duplicates idempotent pattern as Pasiva's
+// Upsert one Activa-sourced loan by (data_source, loan_id_display = id_credito)
+// — see upsertLoan() for why the key includes data_source. Same
+// on_conflict + merge-duplicates idempotent pattern as Pasiva's
 // upsertLoan(), targeting the same shared loans table, but always
 // stamped data_source = 'ous_activa' and never called except from the
 // verified=true branch below.
@@ -1682,7 +1689,7 @@ async function upsertActivaLoan(row) {
     renewal_requested:    !!row.renewal_requested,
     ous_synced_at:        new Date().toISOString()
   };
-  const r = await sbFetch('/rest/v1/loans?on_conflict=loan_id_display', {
+  const r = await sbFetch('/rest/v1/loans?on_conflict=data_source,loan_id_display', {
     method: 'POST',
     headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify(body)
