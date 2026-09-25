@@ -1154,22 +1154,34 @@ async function findProfileByRfcOrEmailOrName(rfc, email, fullName) {
 // must never delete a reused account on a later failure, only one they
 // just created.
 async function findOrCreateAuthUser(email, userMetadata) {
+  if (!email) return { userId: null, created: false };
+  const wanted = String(email).trim().toLowerCase();
+
   // 1. Try to reuse an existing auth user with this email (rare but
   //    possible if the profile was deleted but auth.users survived).
-  const lookup = await sbFetch('/auth/v1/admin/users?email=' + encodeURIComponent(email || ''));
+  //    GoTrue's list endpoint has no exact-email lookup: it ignores an
+  //    `email` param entirely (this code used to send one, and on
+  //    2026-07-08 got back the whole user list, newest first — so
+  //    list[0] was an unrelated account whose profile the caller then
+  //    overwrote), and its `filter` param is a substring match on email
+  //    or name. So only ever reuse a user whose email matches exactly.
+  //    If the real match isn't in the returned page, the create call
+  //    below fails with "already registered" and we throw — a safe
+  //    failure, never a wrong-account reuse.
+  const lookup = await sbFetch('/auth/v1/admin/users?filter=' + encodeURIComponent(wanted) + '&per_page=100');
   if (lookup.ok) {
     const body = await lookup.json();
     const list = (body && (body.users || (Array.isArray(body) ? body : []))) || [];
-    if (list[0] && list[0].id) return { userId: list[0].id, created: false };
+    const match = list.find(u => u && u.id && String(u.email || '').toLowerCase() === wanted);
+    if (match) return { userId: match.id, created: false };
   }
   // 2. Otherwise create the auth user (random password, email confirmed
   //    so it's usable immediately if we later send a reset link).
-  if (!email) return { userId: null, created: false };
   const rand = require('crypto').randomBytes(24).toString('base64url');
   const created = await sbFetch('/auth/v1/admin/users', {
     method: 'POST',
     body: JSON.stringify({
-      email:        String(email).toLowerCase(),
+      email:        wanted,
       password:     rand,
       email_confirm: true,
       user_metadata: userMetadata || {}
