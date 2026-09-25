@@ -28,8 +28,21 @@ async function getProfile(userId) {
   return data
 }
 
+// Every app-owned localStorage key is prefixed 'onix-'. Clearing only
+// 'onix-user' left the rest (cached view, docs/loans/raises snapshots,
+// legacy 'onix-profile' PII) behind for the next person on a shared
+// browser. Device preferences survive sign-out.
+const ONIX_KEYS_KEPT_ON_SIGNOUT = ['onix-lang', 'onix-debug']
+function clearOnixStorage() {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('onix-') && !ONIX_KEYS_KEPT_ON_SIGNOUT.includes(k))
+      .forEach(k => localStorage.removeItem(k))
+  } catch (e) { /* storage blocked — nothing to clear */ }
+}
+
 async function signOut() {
-  localStorage.removeItem('onix-user')
+  clearOnixStorage()
   await _supabase.auth.signOut()
   window.location.href = 'login.html'
 }
@@ -47,7 +60,7 @@ async function requireClient() {
   // which meant a 'met' client could pass login.html's form but then get
   // bounced straight back out the moment the portal page itself loaded.
   if (!profile || profile.role !== 'client' || profile.status === 'pending' || profile.status === 'rejected') {
-    localStorage.removeItem('onix-user')
+    clearOnixStorage()
     await _supabase.auth.signOut()
     window.location.replace('login.html')
     return null
@@ -64,7 +77,7 @@ async function requireAdmin() {
   // A team member that has been removed has status='rejected', locking them out.
   const STAFF_ROLES = ['admin', 'manager'];
   if (!profile || !STAFF_ROLES.includes(profile.role) || profile.status === 'rejected') {
-    localStorage.removeItem('onix-user')
+    clearOnixStorage()
     await _supabase.auth.signOut()
     window.location.replace('login.html')
     return null
