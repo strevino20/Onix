@@ -1014,6 +1014,54 @@ opened. Not touched this session beyond noticing it — pick it up
 whenever, low priority, purely a docs-recording commit (the actual
 column drop migration already shipped).
 
+## Oct 7 2026 — OUS Activa outage re-checked, Sept 18 diagnosis weakened
+
+Confirmed live via the Supabase SQL editor, plus Postman probes. This
+**refines** the "OUS Activa outage — root cause was wrong, corrected
+here" section above; where the two disagree, this one wins.
+
+- **Still failing, ~7 weeks in.** `ous_activa_sync_log` (timestamp column
+  is `ran_at`, not `created_at`/`started_at`) shows every recent attempt
+  failing with `connect ETIMEDOUT 54.165.232.64:7575` on the login call,
+  latest 2026-10-07 17:52 UTC, `rows_seen`/`loans_upserted` all null.
+  Pasiva (`ous_sync_log`) in the same 24h window: 96/96 `ok = true`,
+  latest 17:45 UTC.
+- **The Sept 18 "server is up, only Railway is blocked" claim is no
+  longer supported.** That session recorded 7575 answering instantly
+  (HTTP 400) from outside Railway, 3/3. Today, Postman probes from both
+  Postman's cloud and Santi's own machine timed out on **both** 7575 and
+  7070 (a plain connect timeout, no HTTP response). So outside traffic
+  is dropped on both ports now. Either the Sept 18 test came from an IP
+  that was allowed at the time, or OUS has tightened its firewall since.
+- **What's still consistent:** an IP allowlist on OUS's side that
+  includes Railway for 7070 but not 7575. **What can't be ruled out:**
+  nothing listening on 7575 at all. Outside probing can't tell these
+  apart (both look like a timeout), so don't try again. Both causes have
+  the same fix: OUS has to act.
+- **Next step, still not done:** someone has to contact OUS. Ask them to
+  (1) allow Railway's static outbound IPs on port 7575
+  (`162.220.232.250`, `162.220.232.251`, `152.55.176.240`), (2) confirm
+  the service on 7575 is running and listening on all interfaces, not
+  just localhost, and (3) tell us which source IPs are currently
+  allowed on 7070 so we can check they match ours. Once they fix it, no
+  code change is needed; the 15-min cron resumes on its own.
+- **Don't re-diagnose from outside.** The login request format
+  (`POST /api/auth/login`, JSON body `{login, password}`) matches the
+  official manual, and the failure is a TCP-level timeout before any
+  request is processed, so credentials and our code are not involved.
+- Credentials were shared in chat for the probe; they live only in
+  Railway env vars (`OUS_ACTIVA_LOGIN`/`PASSWORD`), never in this file.
+- **Later same day, confirmed live (96/96 Activa syncs failed, 96/96
+  Pasiva ok in the last 24h; Railway `Onix` deploy SUCCESS, cron
+  `cozy-friendship` ran 13:04 UTC):** a curl probe of `POST
+  /api/auth/login` from Santi's machine timed out on both 7575 and 7070.
+  Carlos (Onix side) replied that the **office IP is already
+  allowlisted** at OUS, which supports the IP-allowlist theory but does
+  not cover Railway's IPs. Santi relayed the finding and expects to
+  revisit it the following week. Useful test still open: probe 7575 from
+  the office network. If it answers there, the server is up and only
+  Railway's IPs need adding; if it also times out, nothing is listening.
+
 ## Session Handoff Notes (historical — chart-recursion session, folded up)
 
 Narrower and more time-sensitive than the sections above — this is what
