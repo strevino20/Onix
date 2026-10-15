@@ -60,6 +60,7 @@ const fetch   = require('node-fetch');
 const http  = require('http');
 const https = require('https');
 const { URL } = require('url');
+const crypto = require('crypto');
 
 // ---------------------------------------------------------------
 // Config
@@ -1912,10 +1913,19 @@ async function runOUSActivaSync() {
   return summary;
 }
 
+// Constant-time compare so the cron key can't be recovered byte-by-byte via
+// response timing. Hashing first gives equal-length buffers for timingSafeEqual.
+function keyMatches(provided, expected) {
+  if (!expected || typeof provided !== 'string' || !provided) return false;
+  const a = crypto.createHash('sha256').update(provided).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
 // -------- Auth: admin JWT OR X-Cron-Key ----------------------
 async function requireAdminOrCronKey(req, res, next) {
   const key = req.headers['x-cron-key'];
-  if (SYNC_CRON_KEY && key && key === SYNC_CRON_KEY) return next();
+  if (keyMatches(key, SYNC_CRON_KEY)) return next();
   // Fall through to normal admin gate (JWT via requireSupabaseAuth + requireOnixAdmin)
   return requireSupabaseAuth(req, res, () => requireOnixAdmin(req, res, next));
 }
@@ -1963,7 +1973,7 @@ app.get('/api/sync-status', requireSupabaseAuth, requireOnixAdmin, async (req, r
 // (just "is this caller an Onix admin"), not Pasiva-specific.
 async function requireAdminOrActivaCronKey(req, res, next) {
   const key = req.headers['x-cron-key'];
-  if (ACTIVA_SYNC_CRON_KEY && key && key === ACTIVA_SYNC_CRON_KEY) return next();
+  if (keyMatches(key, ACTIVA_SYNC_CRON_KEY)) return next();
   return requireSupabaseAuth(req, res, () => requireOnixAdmin(req, res, next));
 }
 
