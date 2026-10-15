@@ -1094,7 +1094,7 @@
         <h1 style="font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:500;font-size:2rem;margin:6px 0 6px">${esc(title)}</h1>
         <div style="width:40px;height:2px;background:#C0392B;margin-bottom:18px"></div>
         ${subtitle ? `<div style="font-size:.85rem;color:#888;margin-bottom:18px">${esc(subtitle)}</div>` : ''}
-        <div style="background:#fff;border:1px solid #E8E8E8;border-top:3px solid #C0392B;padding:18px">
+        <div style="background:#fff;border:1px solid #E8E8E8;border-top:3px solid #C0392B;padding:18px;overflow-x:auto">
           ${innerHtml}
         </div>
       </div>`;
