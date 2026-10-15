@@ -24,6 +24,20 @@
     return isNaN(d) ? null : d;
   }
 
+  // Raw Supabase/PostgREST/Storage error text can name tables, columns and
+  // constraints, which means nothing to a client. Log the real error for
+  // debugging and show a generic bilingual message instead.
+  function isEs() {
+    return ((window.OnixLang && OnixLang.getLang && OnixLang.getLang()) || 'en') === 'es';
+  }
+
+  function friendlyError(err, context) {
+    console.error('[onix] ' + (context || 'error'), err);
+    return isEs()
+      ? 'Algo salió mal. Inténtelo de nuevo o contacte a Onix Finance si el problema continúa.'
+      : 'Something went wrong. Please try again, or contact Onix Finance if it keeps happening.';
+  }
+
   const fmt = {
     money: n => (n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })),
     pct:   n => (n == null ? '—' : Number(n).toFixed(1) + '%'),
@@ -199,7 +213,7 @@
       saveBtn.disabled = false;
       saveBtn.innerHTML = orig;
       if (error) {
-        alert('Could not save profile: ' + error.message);
+        alert((isEs() ? 'No se pudo guardar el perfil: ' : 'Could not save profile: ') + friendlyError(error, 'profile save failed'));
         return;
       }
       // Reflect the new name everywhere on the page
@@ -1032,7 +1046,7 @@
           .from('client-documents').createSignedUrl(path, 3600);
         a.textContent = orig;
         if (r.error || !r.data) {
-          alert('Could not open file: ' + (r.error && r.error.message || 'unknown'));
+          alert((isEs() ? 'No se pudo abrir el archivo: ' : 'Could not open file: ') + friendlyError(r.error, 'open file failed'));
           return;
         }
         window.open(r.data.signedUrl, '_blank', 'noopener');
@@ -1916,8 +1930,7 @@
             .from('client-documents')
             .upload(key, file, { upsert: false, contentType: file.type || undefined });
           if (upRes.error) {
-            uploadErrors.push(file.name + ': ' + upRes.error.message);
-            console.error('[onix] storage upload failed for', file.name, upRes.error);
+            uploadErrors.push(file.name + ': ' + friendlyError(upRes.error, 'application upload failed'));
             continue;
           }
           const ins = await OnixDB.client.from('client_documents').insert({
@@ -1928,16 +1941,14 @@
             storage_path: key
           });
           if (ins.error) {
-            uploadErrors.push(file.name + ': ' + ins.error.message);
-            console.error('[onix] client_documents insert failed for', file.name, ins.error);
+            uploadErrors.push(file.name + ': ' + friendlyError(ins.error, 'application document insert failed'));
             // Roll back the file so the bucket doesn't drift from the table
             OnixDB.client.storage.from('client-documents').remove([key]).catch(() => {});
           } else {
             uploadedCount++;
           }
         } catch (ex) {
-          uploadErrors.push(file.name + ': ' + (ex && ex.message ? ex.message : String(ex)));
-          console.error('[onix] unexpected error uploading', file.name, ex);
+          uploadErrors.push(file.name + ': ' + friendlyError(ex, 'application upload threw'));
         }
       }
       fileCapture.clear();
@@ -2741,7 +2752,7 @@
         const r = await OnixDB.client.storage.from(CLIENT_DOC_BUCKET).createSignedUrl(path, 3600);
         a.textContent = orig;
         if (r.error || !r.data) {
-          alert('Could not open file: ' + (r.error && r.error.message || 'unknown error'));
+          alert((isEs() ? 'No se pudo abrir el archivo: ' : 'Could not open file: ') + friendlyError(r.error, 'open file failed'));
           return;
         }
         window.open(r.data.signedUrl, '_blank', 'noopener');
@@ -2790,7 +2801,7 @@
           const up = await OnixDB.client.storage
             .from(CLIENT_DOC_BUCKET)
             .upload(key, file, { upsert: false, contentType: file.type || undefined });
-          if (up.error) { errors.push(file.name + ': ' + up.error.message); continue; }
+          if (up.error) { errors.push(file.name + ': ' + friendlyError(up.error, 'document upload failed')); continue; }
           const ins = await OnixDB.client.from('client_documents').insert({
             profile_id:  userId,
             category:    category,
@@ -2798,13 +2809,13 @@
             storage_path: key
           });
           if (ins.error) {
-            errors.push(file.name + ': ' + ins.error.message);
+            errors.push(file.name + ': ' + friendlyError(ins.error, 'document insert failed'));
             OnixDB.client.storage.from(CLIENT_DOC_BUCKET).remove([key]).catch(() => {});
             continue;
           }
           ok++;
         } catch (ex) {
-          errors.push(file.name + ': ' + (ex && ex.message ? ex.message : String(ex)));
+          errors.push(file.name + ': ' + friendlyError(ex, 'document upload threw'));
         }
       }
       if (ok) {
@@ -2814,7 +2825,7 @@
       if (errors.length) {
         status.style.color = 'var(--red)';
         status.textContent = (ok ? status.textContent + ' ' : '') +
-          'Could not upload: ' + errors.join(' | ');
+          (isEs() ? 'No se pudo subir: ' : 'Could not upload: ') + errors.join(' | ');
       }
       // Refresh the list from Supabase so the new rows show up
       const fresh = await fetchClientDocs(userId);
