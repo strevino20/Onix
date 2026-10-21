@@ -1062,6 +1062,98 @@ here" section above; where the two disagree, this one wins.
   the office network. If it answers there, the server is up and only
   Railway's IPs need adding; if it also times out, nothing is listening.
 
+## Oct 19 2026 — Pasiva stale-deposit fix: review and revised plan
+
+Unshipped. Business sign-off from Carlos is still pending (does "OUS
+stopped reporting it" mean closed?). Numbers below were confirmed live on
+2026-10-19.
+
+### The bug
+
+`runOUSSync()` only upserts what `/creditos-cierre-saldos` returns, and
+that endpoint returns only OPEN credits. A deposit that matures and rolls
+into a new `id_credito`, or is redeemed, disappears from the response, and
+our `loans` row stays `status='active'` at its last balance forever. No
+Pasiva row has ever been closed (all 212 Pasiva rows are `active`). Renewed
+money is counted twice in client "Total Invested", the client 12-month
+chart and admin totals. Stale rows: 49 (32 clients, about $4.89M) on
+2026-10-19, up from 35 ($2.72M) on 2026-09-25. To detect them, use
+`ous_synced_at` older than about 20 min before the latest sync; a shorter
+window gives false positives while a sync is running (a sync takes about
+40s).
+
+### The draft fix (branch `close-pasiva-deposits-dropped-by-ous`, uncommitted)
+
+It adds step 6 to `runOUSSync()`. Active `ous_pasiva` rows (with
+`ous_synced_at` set) whose `loan_id_display` is missing from that run's
+cierre-saldos response are set to `status='paid', balance=0,
+next_due_date=null`. It skips if OUS returned 0 rows, or if more than
+max(10, 25% of active) would close.
+
+What holds up:
+- It is keyed on the OUS response for that run, not on timestamps.
+- Manual rows are protected by the `ous_synced_at` filter.
+- The ID trimming matches `upsertLoan`.
+- It is reversible: `upsertLoan` rewrites `status`, `balance` and
+  `next_due_date` every run, so a credit that comes back is restored.
+
+### Review findings — revise the fix before shipping
+
+1. **The client portal does not hide `paid` deposits.**
+   `renderInvestmentKpis` and `renderPerformanceChart` in
+   `client-portal-data.js` only exclude `status === 'exited'`. The draft
+   only works because it zeroes `balance`. Closed deposits would still
+   show as $0 "paid" rows in My Investments and still count toward
+   "Across N companies". `buildDepositSchedule` uses `_principal` (from
+   `principal_amount`, which is not zeroed), so the chart keeps adding
+   estimated interest until the old maturity date. Fix: map `paid` →
+   `exited` in `ousDepositToInvestmentShape`. Admin views already filter
+   on `status === 'active'`.
+2. **About a third of Pasiva syncs return 0 rows, every night.** Over the
+   30 days to 2026-10-19, 989 of 2,874 syncs saw 0 credits, all between
+   00:00 and 08:59 UTC. Likely cause: `fecha_cierre` uses the UTC date,
+   which is already tomorrow in Mexico after 6pm. The 0-row guard catches
+   it, but it records an error, so about 36 syncs a night would log
+   `ok=false`. Treat an empty response as a quiet skip. Fixing the date
+   to Mexico time is a separate change. Non-empty runs are a steady
+   166–169 rows (including the 09:00 changeover), so there is no sign of
+   partial responses.
+3. **The 25% cap is too loose for normal days.** Net churn is about 14
+   rows in 24 days. A response missing up to 25% of its rows would pass
+   and close real deposits (it reverses next sync, but clients see it).
+
+On semantics: keep `paid`. The `loans.status` CHECK only allows
+`active`/`paid`/`review`, and `review` already means something for
+Activa. `ous_pasiva` + `paid` uniquely means "OUS stopped reporting it",
+and `ous_synced_at` keeps the last-seen time. **Do not zero the
+balance**: keep the last known amount and rely on finding 1.
+
+### Revised plan (three separate branches/PRs)
+
+1. **Backlog:** after Carlos answers, close the 49 rows as a reviewed,
+   one-time SQL update. First save a snapshot table of the IDs and
+   balances so it can be rolled back. Do not let the first sync after
+   deploy close them all at once. The key question for Carlos is the 6
+   deposits that dropped out before maturity (about $1.36M). Their IDs
+   are in private notes, not here.
+2. **Sync code:**
+   - Cap closures at a small fixed number (about 10).
+   - Skip if `csRows` is well below the last good run's `rows_seen`
+     (say under 90%).
+   - Treat an empty response as a quiet skip, not an error.
+   - Don't zero the balance.
+   - Log the closed IDs with their balances.
+   - Ideally add a `loans_closed` column to `ous_sync_log`.
+3. **Client portal:** treat `paid` deposits as `exited` (finding 1).
+   Merge this before or together with step 2.
+
+Later, optional: have the chart use `ous_synced_at` as the end date for
+closed deposits, so they stop disappearing from past months too. Still
+untouched by design: 5 matured deposits OUS still reports with a balance
+and rising `days_delinquent` (about $341K). That's a business question
+for Carlos, not a sync bug. The repo has no tests; the reversibility
+claim was only checked against a mock OUS + Supabase on 2026-09-25.
+
 ## Session Handoff Notes (historical — chart-recursion session, folded up)
 
 Narrower and more time-sensitive than the sections above — this is what
