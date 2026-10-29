@@ -19,12 +19,13 @@
 
 /*
 
-# Pages (reset-password and accept-invite are reached from email links)
+# Pages (reset-password, accept-invite and activate are reached from email links)
 !/index.html
 !/login.html
 !/signup.html
 !/reset-password.html
 !/accept-invite.html
+!/activate.html
 !/admin-portal.html
 !/client-portal.html
 
