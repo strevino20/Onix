@@ -1154,6 +1154,53 @@ and rising `days_delinquent` (about $341K). That's a business question
 for Carlos, not a sync bug. The repo has no tests; the reversibility
 claim was only checked against a mock OUS + Supabase on 2026-09-25.
 
+## Oct 29 2026 — OUS Activa sync restored
+
+Confirmed live in Supabase. **The Activa outage is over.** It supersedes
+the "still failing" status in the Sept 18 and Oct 7 sections above.
+
+- **Last failure:** 2026-10-29 17:52 UTC (`connect ETIMEDOUT
+  54.165.232.64:7575`). **First success:** 18:05 UTC. Both runs since
+  then were `ok = true`, with 106 credits seen, 59 loans upserted, 0
+  clients created, and 30-38s each. The outage lasted about 10 weeks,
+  from 2026-08-20.
+- **Pasiva was unaffected:** 96/96 `ok = true` in the same 24h, with 172
+  credits and 168 loans per run.
+- **The fix was on OUS's side: they restarted their system** around
+  12:57 Central (17:57 UTC), after Carlos coordinated with them. No code
+  change on our side fixed it. PR #249's redeploy landed shortly before,
+  but it was not the cause. The Activa server was never actually off
+  (Postman reached it from Santi's machine). Port 7575 just would not
+  answer Railway until the restart. What exactly the restart cleared on
+  OUS's side is unknown.
+- **Railway's outbound IP is confirmed** from production as
+  `152.55.176.240`. It is one of the 3 static IPs OUS already
+  whitelisted (see the Sept 18 section), so the allowlist is fine.
+- **Temporary `/diagnose-egress` endpoint (PR #249) is still live.** It
+  is admin-only, sends no credentials, and reports Railway's egress IP
+  and whether 7070/7575 answer. Santi wants it kept for now. Remove it in
+  its own PR only when he says so.
+- **Railway access:** Santi invited Carlos to project
+  `marvelous-surprise`. An expired pending invite for another Onix
+  address is still listed. Whether to remove it is Santi's call.
+- **Railway quirks seen this session:** the service Console tab failed
+  to connect, which is why the endpoint was added. The project Invite
+  dialog does not work through browser automation, so invite manually.
+  `cozy-friendship`'s GitHub source still points at the old owner
+  (`williamBking/Onix`), so Settings shows "Could not load branches".
+  The cron still runs, and it never calls OUS, so it needs no static IP.
+- **`ous_activa_client_matches` is refreshing.** 106 rows were seen in
+  the first hour back. **13 credits are new** since the outage and are
+  waiting in the Loan Match Review queue (145 rows total, 78 verified).
+- **Open follow-up:** 68 `ous_activa` loans are `status = 'active'`, but
+  only 59 were refreshed. The other 9 were absent from OUS's response,
+  probably closed or renewed during the outage (the same pattern as
+  id_credito 380 in the OUS Activa Integration section). The Activa sync
+  never marks absent loans as paid, so these 9 still show as active.
+  Not investigated yet.
+- OUS Activa's `proximo-pagos`/`historico-pagos` are still not
+  integrated. That item is unchanged.
+
 ## Session Handoff Notes (historical — chart-recursion session, folded up)
 
 Narrower and more time-sensitive than the sections above — this is what
