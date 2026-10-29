@@ -840,6 +840,34 @@ app.get('/diagnose', requireSupabaseAuth, requireOnixAdmin, async (req, res) => 
   });
 });
 
+// -------- TEMPORARY: outbound IP + OUS port reachability ------
+// Reports which public IP Railway's outbound traffic leaves from (to
+// compare against the static IPs OUS whitelisted) and whether OUS's
+// Pasiva (7070) / Activa (7575) ports answer at all. No credentials
+// are sent. Remove once the OUS Activa timeout is resolved.
+app.get('/diagnose-egress', requireSupabaseAuth, requireOnixAdmin, async (req, res) => {
+  const probe = async (url) => {
+    const start = Date.now();
+    const ctl = new AbortController();
+    const to  = setTimeout(() => ctl.abort(), 10000);
+    try {
+      const r = await fetch(url, { signal: ctl.signal });
+      const text = (await r.text()).slice(0, 100);
+      return { url, status: r.status, ms: Date.now() - start, body_preview: text };
+    } catch (err) {
+      return { url, ms: Date.now() - start, error_code: err && err.code, error_message: (err && err.message || '').slice(0, 200) };
+    } finally {
+      clearTimeout(to);
+    }
+  };
+  const [ipify, pasiva, activa] = await Promise.all([
+    probe('https://api.ipify.org'),
+    probe('http://54.165.232.64:7070/'),
+    probe('http://54.165.232.64:7575/')
+  ]);
+  res.json({ ran_at: new Date().toISOString(), egress_ip: ipify, ous_pasiva_7070: pasiva, ous_activa_7575: activa });
+});
+
 // -------- Guard: 503 the data routes when not logged in --------
 function requireOUSLogin(req, res, next) {
   if (!state.token) {
