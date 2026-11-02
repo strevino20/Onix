@@ -7,9 +7,9 @@ APIs (OUS Pasiva and OUS Activa).
 
 **Live site:** https://onix-red.vercel.app/login.html
 
-For day-to-day project history, open security/pending items, and detailed
-system gotchas, see [`CLAUDE.md`](./CLAUDE.md) — this README covers
-architecture and setup; `CLAUDE.md` tracks what's currently in flight.
+This README covers architecture and setup. For what's currently in flight,
+open items, and detailed system gotchas, see [`CLAUDE.md`](./CLAUDE.md) —
+its "Current status" section is the source of truth.
 
 ---
 
@@ -18,10 +18,10 @@ architecture and setup; `CLAUDE.md` tracks what's currently in flight.
 | Layer | Tool | Notes |
 |---|---|---|
 | Frontend | Vanilla HTML / CSS / JS | Static, no build step |
-| Frontend hosting | [Vercel](https://vercel.com) | Auto-deploys from `main`; project name `onix`, live at `onix-red.vercel.app` |
+| Frontend hosting | [Vercel](https://vercel.com) | Auto-deploys from `main`; live at `onix-red.vercel.app`. Only files on the `.vercelignore` allowlist are served (see §7) |
 | Backend proxy | Node/Express on [Railway](https://railway.app) (`server.js`) | Authenticates every `/api/*` call against a real Supabase JWT; proxies and syncs OUS Pasiva + OUS Activa data on a cron |
-| Auth + DB | [Supabase](https://supabase.com) | Project `ckayfqplkpplgojdhjlu`. RLS enabled on every table |
-| Email | [Resend](https://resend.com) via Supabase Edge Functions | Sandbox uses `onboarding@resend.dev` until a verified domain is set |
+| Auth + DB | [Supabase](https://supabase.com) | Project `ckayfqplkpplgojdhjlu` (free plan). RLS enabled on every table |
+| Email | [Resend](https://resend.com) via Supabase Edge Functions | Sending from `info@onixfinance.com` once the domain is verified (see §9); until then only the sandbox sender `onboarding@resend.dev` works, and it delivers only to the Resend account owner |
 | File storage | Supabase Storage — `client-documents` bucket | Signed URLs only, folder-scoped by `auth.uid()` |
 | Repo | `strevino20/Onix` | `main` is protected — PRs required, direct pushes blocked |
 
@@ -34,9 +34,10 @@ architecture and setup; `CLAUDE.md` tracks what's currently in flight.
   never auto-creates a client.
 
 Both write into the same `loans` table, distinguished by `loans.data_source`
-(`'ous_pasiva'` vs `'ous_activa'`). See `CLAUDE.md`'s "OUS Activa Integration"
-section for the full architecture and known quirks (e.g. the current OUS
-Activa connectivity issue, which is vendor-side, not app-side).
+(`'ous_pasiva'` vs `'ous_activa'`). A loan or deposit that OUS stops
+reporting is marked `paid` by the next sync (with guards against partial
+responses), and reappears as `active` if OUS returns it. See `CLAUDE.md`'s
+"OUS Pasiva vs OUS Activa" section for the architecture and known quirks.
 
 ---
 
@@ -48,8 +49,9 @@ Activa connectivity issue, which is vendor-side, not app-side).
 | `signup.html` | Self-service registration | Public |
 | `reset-password.html` | Password recovery landing | Public (requires Supabase recovery token) |
 | `accept-invite.html` | Team member invite acceptance | Public (requires invite token) |
+| `activate.html` | Client account activation: set a password from an emailed link | Public (requires activation token, 7-day, single use) |
 | `client-portal.html` | Client-facing dashboard | Requires `role='client'`, `status` in (`active`, `met`) |
-| `admin-portal.html` | Admin console | Requires `role` in (`admin`, `manager`), `status !== 'rejected'` |
+| `admin-portal.html` | Admin console | Requires `role` in (`admin`, `manager`), `status !== 'rejected'`. Account executives are `role='admin'` with `title='ae'` |
 | `supabase.js` | Shared Supabase client + `OnixDB.*` helpers | Loaded by every page |
 | `client-portal-data.js` | Live data layer for the client portal | Loaded by `client-portal.html` |
 | `admin-portal-data.js` | Live data layer for the admin portal | Loaded by `admin-portal.html` |
@@ -81,8 +83,8 @@ independently at the policy level.
 
 | Table | Purpose |
 |---|---|
-| `profiles` | Extends `auth.users`. `role` (`client`/`admin`/`manager`), `status` (`pending`/`met`/`active`/`rejected`) |
-| `loans` | Real loans *and* Pasiva deposits, distinguished by `data_source` (`ous_pasiva`/`ous_activa`) |
+| `profiles` | Extends `auth.users`. `role` (`client`/`admin`/`manager`), `title` (`admin`/`ae`/`manager`), `status` (`pending`/`met`/`active`/`rejected`) |
+| `loans` | Real loans *and* Pasiva deposits, distinguished by `data_source` (`ous_pasiva`/`ous_activa`). `status`: `active`/`paid`/`review`/`charged_off` |
 | `loan_documents` | Reference docs per loan — external share link only (Google Drive), no in-app upload |
 | `loan_applications` | Submitted from the client portal — admin reviews and approves |
 | `loan_payments` | Scheduled and recorded loan payments |
@@ -97,6 +99,7 @@ independently at the policy level.
 | `client_admin_notes` | Admin-only notes per client, separate from anything client-visible |
 | `calendar_events` | Manually-created admin calendar entries |
 | `team_invites` | Pending/accepted invitations for new admin/manager team members |
+| `client_activations` | One-time account-activation links sent to existing clients. Only a SHA-256 hash of each token is stored; staff can read it, only the service role writes |
 
 **OUS integration tables**
 
@@ -115,10 +118,15 @@ own role and grant nothing by themselves.
 
 ## 4. Edge Functions
 
-Seven deployed (Supabase Dashboard → Edge Functions):
+Nine deployed (Supabase Dashboard → Edge Functions). Source for four of them
+(`activate-client-account`, `invite-team-member`,
+`send-account-activated-email`, `send-client-activation`) is in
+`supabase/functions/`; the rest exist only in Supabase.
 
 | Function | Triggered by | Purpose |
 |---|---|---|
+| `send-client-activation` | Invite / Resend Invite button in the admin Clients view | Emails up to 25 active/met clients a bilingual 7-day activation link. Any active admin, AE or manager can call it. Refuses to run without `RESEND_API_KEY` and `CLIENT_INVITE_FROM_EMAIL` |
+| `activate-client-account` | `activate.html` | Validates the link and sets the client's password on their existing account; never creates accounts or changes role/status |
 | `send-loan-app-email` | New loan application submitted | Emails Onix staff |
 | `send-new-client-email` | New signup | Emails Onix staff about a pending approval |
 | `send-account-activated-email` | Admin approves a client | Emails the client that they can sign in |
@@ -136,9 +144,10 @@ in `invite-team-member`.
 
 **Edge Function secrets** (Supabase Dashboard → Edge Functions → Secrets):
 `RESEND_API_KEY`, `LOAN_APP_NOTIFY_EMAIL`, `LOAN_APP_FROM_EMAIL`,
-`NEW_CLIENT_NOTIFY_EMAIL`, `TEAM_INVITE_FROM_EMAIL`, `PORTAL_BASE_URL`.
-`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are injected automatically by
-Supabase, not set manually.
+`NEW_CLIENT_NOTIFY_EMAIL`, `TEAM_INVITE_FROM_EMAIL`, `CLIENT_INVITE_FROM_EMAIL`,
+`CLIENT_INVITE_REPLY_TO` (optional), `PORTAL_BASE_URL` (defaults to
+`https://onix-red.vercel.app`). `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are
+injected automatically by Supabase, not set manually.
 
 ---
 
@@ -148,14 +157,18 @@ A small Express app, deployed as the `Onix` service in the `marvelous-surprise`
 Railway project. Every `/api/*` route requires a real Supabase JWT; OUS sync
 routes additionally accept a cron key. Responsibilities:
 
-- Proxies OUS Pasiva (`54.165.232.64:7070`) and OUS Activa
-  (`54.165.232.64:7575`) — both vendor APIs are otherwise unreachable from
+- Proxies OUS Pasiva (port 7070) and OUS Activa (port 7575) on the vendor's
+  host (configured via env vars) — both vendor APIs are otherwise unreachable from
   the browser (no CORS, and credentials shouldn't ship client-side anyway).
 - Runs the sync logic (`runOUSActivaSync`, Pasiva's equivalent) invoked by
   two separate Supabase cron jobs 5 minutes apart.
-- Rate-limits outbound calls to OUS (`createThrottle()`).
+- Rate-limits outbound calls to OUS (`createThrottle()`) and inbound `/api/*`
+  calls per IP (120 requests/minute by default).
 - `ALLOWED_ORIGINS` env var controls CORS — must include the live Vercel
-  domain and any custom domain in use.
+  domain and any custom domain in use. It does not follow a domain change
+  automatically.
+- Railway's Static Outbound IPs are enabled on the `Onix` service; OUS
+  allowlists them. Keep that in mind if the service is ever recreated.
 
 A second Railway service, `cozy-friendship`, runs `railway-status-snapshot.js`
 once a day as a cron job and writes to `railway_status_snapshots`.
@@ -163,7 +176,8 @@ once a day as a cron job and writes to `railway_status_snapshots`.
 Required env vars: `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `OUS_API_URL`/`OUS_LOGIN`/`OUS_PASSWORD`,
 `OUS_ACTIVA_API_URL`/`OUS_ACTIVA_LOGIN`/`OUS_ACTIVA_PASSWORD`,
-`SYNC_CRON_KEY`, `ACTIVA_SYNC_CRON_KEY`, `ALLOWED_ORIGINS`.
+`SYNC_CRON_KEY`, `ACTIVA_SYNC_CRON_KEY`, `ALLOWED_ORIGINS`. Optional:
+`RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`.
 
 ---
 
@@ -200,7 +214,13 @@ blocked, and every PR must pass:
 2. Bump the `?v=NN` cache query on any script you change.
 3. If your change touches `admin-portal.html`, follow the decode → edit →
    re-encode procedure in `CLAUDE.md` — do not hand-edit the raw line.
-4. Open a PR; CI must pass before merge.
+4. If you add a file the site needs to serve (a new page, script or asset),
+   add it to the `.vercelignore` allowlist — anything not listed there is not
+   served in production and will 404.
+5. Open a PR; CI must pass before merge.
+
+This repo is public: never commit client names or emails, test logins,
+credentials or API keys.
 
 ---
 
@@ -216,6 +236,14 @@ page; Supabase emails them a recovery link.
 client → fill in loan details → Save. Most loans arrive via the OUS sync
 instead of manual entry.
 
+**Invite an existing client to the portal** — Admin → Clients → **Invite**
+(or **Resend Invite**) on the client's row, then confirm. They get a
+bilingual email with a 7-day, single-use link to `activate.html` where they set
+their own password. The row then shows Invited, Activated, or Invite expired.
+Only active/met clients with an email are eligible. Send in small batches and
+check delivery before the next batch. This needs the Resend sender domain to be
+verified first (see §9).
+
 **Approve a pending registration** — Admin → Clients → Pending Approvals →
 Approve. The client receives an "account activated" email automatically.
 
@@ -228,33 +256,63 @@ borrower) before it's allowed to write a loan.
 
 ---
 
-## 9. Custom domain
+## 9. Domain, DNS and email sending
+
+`onixfinance.com` is registered at Network Solutions, its DNS is hosted at
+DreamHost (`ns1-3.dreamhost.com`), and its mail runs on Google Workspace. Any
+DNS record for the steps below is added in **DreamHost**, not at the registrar.
+
+### Email sending domain (Resend)
+
+Client invites and other emails go through Resend. Until `onixfinance.com` is
+verified there, only the sandbox sender works and it reaches only the Resend
+account owner, so `send-client-activation` refuses to send.
+
+1. Resend → Domains → add `onixfinance.com` (the root domain, so mail can come
+   from `info@onixfinance.com`).
+2. Add the records Resend shows at DreamHost: a `TXT` at `resend._domainkey`
+   (DKIM), `CNAME`s at `send` and `rsend`, and optionally a `TXT` at `_dmarc`
+   (`v=DMARC1; p=none;`). These sit on separate names and don't affect the
+   existing Google Workspace mail records.
+3. Click Verify in Resend and wait for the status to show Verified.
+4. Set the Supabase edge function secrets `CLIENT_INVITE_FROM_EMAIL`
+   (e.g. `Onix Finance <info@onixfinance.com>`) and optionally
+   `CLIENT_INVITE_REPLY_TO`, `LOAN_APP_FROM_EMAIL` and `TEAM_INVITE_FROM_EMAIL`.
+5. Send one test invite end to end before inviting real clients.
+
+Check the current state of this in `CLAUDE.md` — at the time of writing, it is
+waiting on DreamHost access. Also note that the domain registration is up for
+renewal on 2026-12-02.
+
+### Custom portal domain
 
 The site currently serves at `onix-red.vercel.app` only — no custom domain
 is configured yet. `portal.onixfinance.com` is already allow-listed in
 Railway's `ALLOWED_ORIGINS` CORS config in anticipation of this, but the
 domain itself hasn't been added in Vercel or pointed via DNS. To set it up:
 
-1. Vercel dashboard → the `onix` project → Settings → Domains → add
-   `portal.onixfinance.com`.
+1. Vercel dashboard → the project that serves `onix-red.vercel.app` →
+   Settings → Domains → add `portal.onixfinance.com`.
 2. Add the DNS record Vercel gives you (typically a `CNAME` to
-   `cname.vercel-dns.com`) at whichever provider manages `onixfinance.com`.
+   `cname.vercel-dns.com`) at DreamHost.
 3. Once verified, add
    `https://portal.onixfinance.com/reset-password.html` and
    `https://portal.onixfinance.com/login.html` to Supabase Dashboard →
    Authentication → URL Configuration → Redirect URLs, or password-reset
    emails won't redirect correctly on the new domain.
+4. Set `PORTAL_BASE_URL` for the edge functions and update Railway's
+   `ALLOWED_ORIGINS` if it needs to change.
 
 ---
 
 ## 10. Known gaps
 
-Tracked living in `CLAUDE.md`'s "Still genuinely open" list, not duplicated
-here since it changes often. As of this writing, the notable open items are:
-OUS Activa's vendor-side connectivity issue (root-caused, fix is on the
-vendor), no CSP/HSTS headers yet, and the brandbook visual-fidelity pass
-hasn't been done. Check `CLAUDE.md` directly for the current list rather
-than trusting this paragraph — it's a pointer, not the source of truth.
+Tracked in `CLAUDE.md`'s "Open items" list, not duplicated here since it
+changes often. It's a pointer, not the source of truth. Broad themes at the
+time of writing: finishing client onboarding (Resend domain verification, then
+batched invites), the Supabase free-tier limits, a few unanswered business
+questions about deposits OUS no longer reports, and the brandbook
+visual-fidelity pass, which hasn't been done.
 
 ---
 
