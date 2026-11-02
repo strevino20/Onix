@@ -2859,7 +2859,9 @@
       amount_invested: loan.balance,
       expected_return: loan.interest_rate,
       ownership_pct: null,
-      status: loan.status === 'active' ? 'active' : (loan.status || 'active'),
+      // A 'paid' deposit is one OUS stopped reporting (matured/rolled over
+      // or redeemed). 'exited' is what every investment view already hides.
+      status: loan.status === 'paid' ? 'exited' : (loan.status || 'active'),
       start_date: loan.origination_date || loan.created_at,
       investment_documents: loan.loan_documents || [],
       _monthly_payment: loan.monthly_payment,
