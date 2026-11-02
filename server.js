@@ -1341,6 +1341,46 @@ async function logSync({ endpoint, rows_seen, clients_upserted, loans_upserted, 
 }
 
 // -------- The sync itself ------------------------------------
+// Close loans OUS no longer reports. cierre-saldos only returns open
+// credits and the upserts never touch a row they don't see, so a credit that
+// matured and rolled into a new id_credito, or was paid off early, would stay
+// 'active' at its last balance forever and be double-counted in every total.
+// Keyed on what OUS returned (not on upsert success), so a credit we merely
+// failed to write this run is never closed. Reversible: if OUS reports the
+// credit again, the next upsert restores its status and balance.
+// The balance is left alone (last known amount); the portals hide non-active
+// rows. Guards keep a truncated OUS response from closing real loans.
+const CLOSE_STALE_MAX = 10;        // normal churn is a handful per day
+const CLOSE_STALE_MIN_RATIO = 0.9; // vs. the last non-empty run
+async function closeStaleOusLoans({ dataSource, logTable, seenIds, statuses, tag }) {
+  if (!seenIds.size) return { closed: 0, skipped: 'empty response' };
+  const lr = await sbFetch('/rest/v1/' + logTable + '?rows_seen=gt.0&select=rows_seen&order=ran_at.desc&limit=1');
+  if (!lr.ok) throw new Error('last-run fetch HTTP ' + lr.status);
+  const last = ((await lr.json())[0] || {}).rows_seen;
+  if (last && seenIds.size < last * CLOSE_STALE_MIN_RATIO) {
+    return { closed: 0, error: 'close-stale skipped: OUS returned ' + seenIds.size +
+             ' credits vs ' + last + ' last run' };
+  }
+  const r = await sbFetch('/rest/v1/loans?data_source=eq.' + dataSource +
+    '&status=in.(' + statuses.join(',') + ')&ous_synced_at=not.is.null&select=id,loan_id_display,balance');
+  if (!r.ok) throw new Error('open loans fetch HTTP ' + r.status);
+  const stale = (await r.json()).filter(l => !seenIds.has(String(l.loan_id_display || '').trim()));
+  if (!stale.length) return { closed: 0 };
+  if (stale.length > CLOSE_STALE_MAX) {
+    return { closed: 0, error: 'close-stale skipped: ' + stale.length + ' loans missing from OUS (limit ' +
+             CLOSE_STALE_MAX + ')' };
+  }
+  const p = await sbFetch('/rest/v1/loans?id=in.(' + stale.map(l => l.id).join(',') + ')&data_source=eq.' + dataSource, {
+    method: 'PATCH',
+    headers: { 'Prefer': 'return=minimal' },
+    body: JSON.stringify({ status: 'paid', next_due_date: null })
+  });
+  if (!p.ok) throw new Error('close PATCH HTTP ' + p.status + ': ' + (await p.text()).slice(0, 200));
+  console.log('[' + tag + '] closed ' + stale.length + ' loan(s) no longer reported by OUS: ' +
+              stale.map(l => l.loan_id_display + ' ($' + l.balance + ')').join(', '));
+  return { closed: stale.length };
+}
+
 async function runOUSSync() {
   const start = Date.now();
 
@@ -1470,6 +1510,18 @@ async function runOUSSync() {
     }
   }
 
+  let loansClosed = 0;
+  try {
+    const res = await closeStaleOusLoans({
+      dataSource: 'ous_pasiva', logTable: 'ous_sync_log', tag: 'ous-sync', statuses: ['active'],
+      seenIds: new Set(csRows.map(r => String((r && r.id_credito) || '').trim()).filter(Boolean))
+    });
+    loansClosed = res.closed;
+    if (res.error) errors.push(res.error);
+  } catch (e) {
+    errors.push('close-stale: ' + (e.message || String(e)));
+  }
+
   const summary = {
     ok: errors.length === 0,
     duration_ms: Date.now() - start,
@@ -1479,6 +1531,7 @@ async function runOUSSync() {
     clients_created: clientsCreated,
     loans_upserted:  loansUpserted,
     loans_skipped:   loansSkipped,
+    loans_closed:    loansClosed,
     errors: errors.slice(0, 20)
   };
 
@@ -1915,6 +1968,18 @@ async function runOUSActivaSync() {
     }
   }
 
+  let loansClosed = 0;
+  try {
+    const res = await closeStaleOusLoans({
+      dataSource: 'ous_activa', logTable: 'ous_activa_sync_log', tag: 'ous-activa-sync', statuses: ['active', 'review'],
+      seenIds: new Set(csRows.map(r => String((r && r.id_credito) || '').trim()).filter(Boolean))
+    });
+    loansClosed = res.closed;
+    if (res.error) errors.push(res.error);
+  } catch (e) {
+    errors.push('close-stale: ' + (e.message || String(e)));
+  }
+
   const summary = {
     ok: errors.length === 0,
     duration_ms: Date.now() - start,
@@ -1924,6 +1989,7 @@ async function runOUSActivaSync() {
     rfc_auto_matched: rfcAutoMatched,
     loans_upserted: loansUpserted,
     loans_skipped_unverified: loansSkippedUnverified,
+    loans_closed: loansClosed,
     errors: errors.slice(0, 20)
   };
 
