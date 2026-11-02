@@ -1304,9 +1304,111 @@
     return true;
   }
 
-  function paintClientsView(clients, loans, investments, pending, clientDocuments) {
+  // Portal-access state per client from client_activations (activation
+  // links sent via the send-client-activation edge function). Activated
+  // wins over everything; otherwise the newest live link; otherwise a
+  // lapsed one. Revoked rows (superseded or failed sends) are ignored.
+  function clientAccessState(activations) {
+    const out = {};
+    const now = Date.now();
+    (activations || []).forEach(a => {
+      const cur = out[a.profile_id];
+      if (a.status === 'used') {
+        if (!cur || cur.state !== 'activated' || a.used_at > cur.at) out[a.profile_id] = { state: 'activated', at: a.used_at };
+        return;
+      }
+      if (cur && cur.state === 'activated') return;
+      const live = a.status === 'pending' && new Date(a.expires_at).getTime() > now;
+      if (live) out[a.profile_id] = { state: 'invited', at: a.sent_at, expires: a.expires_at };
+      else if ((a.status === 'pending' || a.status === 'expired') && !(cur && cur.state === 'invited')) {
+        out[a.profile_id] = { state: 'expired', at: a.sent_at };
+      }
+    });
+    return out;
+  }
+
+  // One document-level handler for every Invite / Resend button: the
+  // visible client rows are clones made by splitClientsBySection
+  // (admin-portal.html), and cloneNode doesn't carry listeners over.
+  let clientInviteWired = false;
+  function wireClientInviteButtons() {
+    if (clientInviteWired) return;
+    clientInviteWired = true;
+    document.addEventListener('click', async (e) => {
+      const btn = e.target && e.target.closest && e.target.closest('[data-cl-invite]');
+      if (!btn || btn.disabled) return;
+      e.preventDefault();
+      const tr = btn.closest('tr[data-profile-id]');
+      const id = tr && tr.getAttribute('data-profile-id');
+      if (!id) return;
+      const name = btn.getAttribute('data-cl-name') || '';
+      const email = btn.getAttribute('data-cl-email') || '';
+      const resend = btn.getAttribute('data-cl-invite') === 'resend';
+      const q = resend
+        ? `Send ${name || email} a new activation email at ${email}?\n\nThe link in the earlier email will stop working.`
+        : `Send ${name || email} an activation email at ${email}?\n\nThe link lets them set their own password and expires in 7 days.`;
+      if (!confirm(q)) return;
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      const toast = (msg, ok) => window.__onix_showToast
+        ? window.__onix_showToast(msg, ok ? '#3B8B3B' : '#C0392B')
+        : alert(msg.replace(/<[^>]+>/g, ''));
+      try {
+        const { data, error } = await OnixDB.client.functions.invoke('send-client-activation', {
+          body: { profile_ids: [id] }
+        });
+        let res = data;
+        if (error) {
+          // Non-2xx: the function's JSON error body is on error.context.
+          try { res = await error.context.json(); } catch (_) { res = { error: error.message }; }
+        }
+        const r = res && res.results && res.results[0];
+        if (r && r.ok) {
+          toast(`Activation email sent to <b>${esc(email)}</b>.`, true);
+          refreshAll();
+          return;
+        }
+        const why = {
+          not_a_client: 'This account is not a client.',
+          no_email: 'This client has no valid email address.',
+          email_failed: 'The email could not be sent.',
+          insert_failed: 'The link could not be created.'
+        }[r && r.reason] || (r && /^status_/.test(r.reason) ? `Clients with status "${r.reason.slice(7)}" can't be invited yet.` : null)
+          || (res && res.error) || 'Unknown error.';
+        console.error('[onix-admin] send-client-activation:', res);
+        toast(`Activation email not sent: ${esc(why)}`, false);
+      } catch (ex) {
+        console.error('[onix-admin] send-client-activation failed:', ex);
+        toast('Activation email not sent: network error.', false);
+      }
+      btn.disabled = false;
+      btn.textContent = label;
+    });
+  }
+
+  function paintClientsView(clients, loans, investments, pending, clientDocuments, clientActivations) {
     const v = findView(STATIC_VIEWS.clients); if (!v) return false;
     if (alreadyPainted(v)) return true;
+    wireClientInviteButtons();
+    const access = clientAccessState(clientActivations);
+    const accessLine = (c) => {
+      const a = access[c.id];
+      if (!a) return '';
+      const style = 'display:block;margin-top:4px;font-size:.68rem;white-space:nowrap';
+      if (a.state === 'activated') return `<span style="${style};color:#3B8B3B">Activated ${fmt.date(a.at)}</span>`;
+      if (a.state === 'invited')   return `<span style="${style};color:#888" title="Link expires ${esc(fmt.date(a.expires))}">Invited ${fmt.date(a.at)}</span>`;
+      return `<span style="${style};color:#C0392B">Invite expired</span>`;
+    };
+    // Invite only clients the edge function will accept; no button once
+    // they've activated (they can use "Forgot password" from then on).
+    const inviteBtn = (c) => {
+      if (!c.email || !['active', 'met'].includes(c.status)) return '';
+      const a = access[c.id];
+      if (a && a.state === 'activated') return '';
+      const mode = a ? 'resend' : 'invite';
+      return `<button class="oac-btn outline" data-cl-invite="${mode}" data-cl-name="${esc(up(c.full_name) || '')}" data-cl-email="${esc(c.email)}" type="button">${mode === 'resend' ? 'Resend Invite' : 'Invite'}</button>`;
+    };
     pending = pending || (clients || []).filter(c => c.status === 'pending');
     // Which doc categories does each profile have? Used by the
     // "Missing document" filter dropdown next to Export CSV. A row's
@@ -1356,7 +1458,7 @@
         <td>${loanBalances[c.id] ? fmt.money(loanBalances[c.id]) : '—'}</td>
         <td>${loanCounts[c.id] || '—'}</td>
         <td>${invCounts[c.id] || '—'}</td>
-        <td><span class="oac-badge ${esc(c.status || '')}">${esc(c.status || '—')}</span></td>
+        <td><span class="oac-badge ${esc(c.status || '')}">${esc(c.status || '—')}</span>${accessLine(c)}</td>
         <td>${fmt.date(c.created_at)}</td>
         <td style="text-align:center">${(docCounts[c.id] || 0) === 0
           ? '<span title="No documents" style="display:inline-flex;align-items:center;gap:5px;color:#B4B2A9"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="3" y1="3" x2="21" y2="21"/></svg></span>'
@@ -1364,6 +1466,7 @@
         <td style="white-space:nowrap">
           <button class="oac-btn outline" data-cl-view="1" type="button">View</button>
           <button class="oac-btn outline" data-cl-docs="1" type="button">Documents</button>
+          ${inviteBtn(c)}
         </td>
       </tr>`).join('') : '<tr><td colspan="10" class="oac-empty">No clients yet.</td></tr>';
     // Pending Approvals banner — split into "new sign-ups" (just signed up,
@@ -3057,7 +3160,7 @@
         }
 
         paintDashboardView(data);
-        paintClientsView(data.clients, data.loans, data.investments, data.pending, data.clientDocuments);
+        paintClientsView(data.clients, data.loans, data.investments, data.pending, data.clientDocuments, data.clientActivations);
         paintLoansView(data.loans);
         // Active Deposits — sidebar item + view are injected dynamically
         // (same pattern as Calendar) because they're not in the Bolt-
@@ -3342,7 +3445,7 @@
     const greeting = document.getElementById('oac-greeting');
     if (greeting) greeting.textContent = 'Loading data…';
     try {
-      const [clients, pending, loans, investments, raises, applications, payments, distributions, interests, clientDocuments] = await Promise.all([
+      const [clients, pending, loans, investments, raises, applications, payments, distributions, interests, clientDocuments, clientActivations] = await Promise.all([
         OnixDB.getAllClients(),
         OnixDB.getPendingClients(),
         OnixDB.getAllLoans(),
@@ -3352,12 +3455,17 @@
         OnixDB.getAllPayments         ? OnixDB.getAllPayments()         : Promise.resolve([]),
         OnixDB.getAllDistributions    ? OnixDB.getAllDistributions()    : Promise.resolve([]),
         OnixDB.getAllRaiseInterests   ? OnixDB.getAllRaiseInterests()   : Promise.resolve([]),
-        OnixDB.getAllClientDocuments  ? OnixDB.getAllClientDocuments()  : Promise.resolve([])
+        OnixDB.getAllClientDocuments  ? OnixDB.getAllClientDocuments()  : Promise.resolve([]),
+        OnixDB.client.from('client_activations').select('profile_id, status, sent_at, used_at, expires_at')
+          .then(({ data, error }) => {
+            if (error) console.error('[onix-admin] client activations error:', error);
+            return data || [];
+          })
       ]);
       // The Live Admin Console drawer is retired; everything renders inside
       // the static admin tabs now. Pending Approvals appears as a banner on
       // the Clients tab (driven by data.pending).
-      paintStaticAdmin({ clients, loans, investments, raises, applications, payments, distributions, pending, clientDocuments });
+      paintStaticAdmin({ clients, loans, investments, raises, applications, payments, distributions, pending, clientDocuments, clientActivations });
       paintSidebarBadges({ applications, pending, interests });
       renderAdminNotifications({ applications, payments, distributions, pending, interests });
       const newInterest = (interests || []).filter(i => i.status === 'new').length;
