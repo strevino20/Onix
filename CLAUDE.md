@@ -190,6 +190,11 @@ Resend → Domains). Santi does not have DreamHost access yet; someone who does 
 records (none of them exist today, so nothing conflicts; mail is Google
 Workspace with working MX):
 
+Santi asked Carlos about DreamHost access on 2026-11-04 and is waiting for the
+answer; decided to wait rather than take a workaround. Alternatives set aside
+for now: sending from `send-client-activation` through Google Workspace SMTP
+(needs no DNS) and manual invite links.
+
 | Type | Name | Value |
 |---|---|---|
 | TXT | `resend._domainkey` | the DKIM `p=MIGfMA…` key — copy it from the Resend page |
@@ -225,7 +230,12 @@ confirm renewal (and DreamHost access, same conversation).
    (2026-09-21; likely the `client-documents` bucket, ~1,171 docs); a paid
    upgrade is probable. Project was `ACTIVE_HEALTHY` as of 2026-09-18, margin
    to auto-pause unknown. Leaked Password Protection is a paid feature,
-   still disabled, bundled with the same upgrade decision.
+   still disabled, bundled with the same upgrade decision. Pro fixes storage
+   and Leaked Password Protection but **not** email: Supabase's built-in SMTP
+   only delivers to organization team members (`email_address_not_authorized`
+   for anyone else) and only sends Auth emails. Client activation emails go
+   out of the edge function via Resend, so they depend on domain verification,
+   not the plan.
 3. **Resend domain verification / DreamHost access** (above).
 4. **Carlos's answers on the stale-deposit questions** (above).
 5. **Supabase Auth dashboard: confirm the project-level minimum password
