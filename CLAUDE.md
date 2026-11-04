@@ -237,7 +237,17 @@ confirm renewal (and DreamHost access, same conversation).
    out of the edge function via Resend, so they depend on domain verification,
    not the plan.
 3. **Resend domain verification / DreamHost access** (above).
-4. **Carlos's answers on the stale-deposit questions** (above).
+4. **Carlos's answers on the stale-deposit questions** (above). Portal audit
+   of 2026-11-04 (counts, 141 active/met clients): render matches the DB for
+   all of them (PRs #258/#259 fixed exited-deposit cards and the dashboard
+   loan total). Still to review against OUS, deliberately left pending: 4
+   duplicate active rows (same client, principal, rate, maturity), 9 active
+   rows past maturity, 19 Pasiva rows whose balance differs from principal
+   by >1%, 5 Pasiva rows maturing in <90 days with no `next_due_date`, 8
+   Activa `paid` rows still holding a balance. `profiles.is_borrower` is not
+   reliable (91 flagged borrowers have no Activa credit). The audit was a
+   Playwright run of the real `client-portal-data.js` with stubbed `OnixDB`
+   data per client; it checks render vs DB, not DB vs OUS.
 5. **Supabase Auth dashboard: confirm the project-level minimum password
    length is 8** — Santi checks this, no tool can. The last open item from
    the 2026-09 security audit.
