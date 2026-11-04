@@ -1339,7 +1339,12 @@
     if (!grid) return;
     // Clear demo cards
     grid.querySelectorAll('.inv-card').forEach(c => c.remove());
-    if (!investments || !investments.length) {
+    // An exited deposit is one OUS stopped reporting (matured, rolled over
+    // or redeemed). It keeps its last balance in the row, so a card would
+    // show that old amount as "Invested" while the KPIs above already leave
+    // it out — hide the card, same as the totals and the allocation chart.
+    const cards = (investments || []).filter(i => !(i.venture_type === 'deposit' && i.status === 'exited'));
+    if (!cards.length) {
       const empty = document.createElement('div');
       empty.style.cssText = 'grid-column:1/-1;padding:40px;text-align:center;color:var(--muted);background:#fff;border:1px solid var(--border);border-top:3px solid var(--red);';
       empty.innerHTML = '<div style="font-family:var(--serif);font-style:italic;font-size:1.4rem;margin-bottom:8px">No active investments</div>' +
@@ -1347,7 +1352,7 @@
       grid.appendChild(empty);
       return;
     }
-    investments.forEach(inv => {
+    cards.forEach(inv => {
       const card = document.createElement('div');
       card.className = 'inv-card';
       card.setAttribute('onclick', "showInvestmentDetail('" + inv.id + "')");
