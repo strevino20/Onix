@@ -854,6 +854,7 @@
       localStorage.setItem(STORE_KEY, nextId);
       renderLoan(next, payments);
       renderPayments(payments, next);
+      paintOutstandingLoanTotal(loans);
       document.querySelectorAll('[data-onix-loan-select]').forEach(sel => {
         if (sel.value !== nextId) sel.value = nextId;
       });
@@ -865,6 +866,19 @@
 
     renderLoan(current, payments);
     renderPayments(payments, current);
+    paintOutstandingLoanTotal(loans);
+  }
+
+  // The Dashboard's "Outstanding Loan" card used to follow the loan picked
+  // on My Loan, so a client with several credits saw just one of their
+  // balances there. With 2+ open loans it shows the sum instead; the
+  // per-loan balance stays on My Loan ("Outstanding Balance").
+  function paintOutstandingLoanTotal(loans) {
+    const open = (loans || []).filter(l => l.status !== 'paid' && l.status !== 'charged_off');
+    if (open.length < 2) return;
+    const total = open.reduce((s, l) => s + Number(l.balance || 0), 0);
+    setKpi('Outstanding Loan', fmt.money(total),
+      { en: open.length + ' active loans', es: open.length + ' préstamos activos' });
   }
 
   // Inject (or update) a labeled <select> at the top of a view that lists
